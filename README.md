@@ -1,5 +1,15 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## About EcoVate
+
+EcoVate is an AI-powered circular-economy platform that uses a coordinated multi-agent system to scan and identify items, research sustainable reuse options, and verify recommendations for practical environmental action.
+
+Built during the Insforge x Qoder AI Agent Hackathon.
+
+**My Contribution:** [Describe your specific contribution here]
+
+**Team:** Sumitkc74
+
 ## Getting Started
 
 First, run the development server:
