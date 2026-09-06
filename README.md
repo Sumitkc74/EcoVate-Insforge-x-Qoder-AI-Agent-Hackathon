@@ -1,34 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
 ## About EcoVate
 
 EcoVate is an AI-powered circular-economy platform that uses a coordinated multi-agent system to scan and identify items, research sustainable reuse options, and verify recommendations for practical environmental action.
 
 Built during the Insforge x Qoder AI Agent Hackathon.
 
-**My Contribution:** [Describe your specific contribution here]
+**Team:** Namrata Mali, Ayush Kumar Gupta, Ritish Upadhyayula, Sumit K C
 
-**Team:** Sumitkc74
+## My Contribution
+
+I implemented the multi-agent coordination workflow, connecting item scanning with vision analysis, sustainability research, DIY reuse recommendations, and verification so users receive practical and trustworthy actions for each item.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 20 or later
+- npm
+
+### Installation
+
+Clone the repository and install the dependencies:
+
+```bash
+git clone https://github.com/Sumitkc74/EcoVate-Insforge-x-Qoder-AI-Agent-Hackathon.git
+cd EcoVate-Insforge-x-Qoder-AI-Agent-Hackathon
+npm install
+```
+
+The app includes a default InsForge URL, but an anonymous key is required for
+authentication and backend features. To configure the connection for local
+development, create a `.env.local` file in the project root:
+
+```env
+NEXT_PUBLIC_INSFORGE_URL=your_insforge_url
+NEXT_PUBLIC_INSFORGE_ANON_KEY=your_insforge_anon_key
+INSFORGE_SERVICE_KEY=your_insforge_service_key
+```
+
+Keep `INSFORGE_SERVICE_KEY` server-side and do not expose or commit it.
+
+### Run the development server
+
+Start the app locally:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Other commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run the linter:
+
+```bash
+npm run lint
+```
+
+Build and run the production version:
+
+```bash
+npm run build
+npm run start
+```
 
 ## Learn More
 
