@@ -36,13 +36,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
 
-    // Run Coordinator Agent (Vision → Research → DIY)
+    // Optional manual details: when product name + packaging type are
+    // supplied, the coordinator skips Vision AI entirely (free-plan path).
+    const manualMaterials = Array.isArray(body.materials)
+      ? body.materials
+      : typeof body.materials === 'string'
+        ? body.materials.split(',').map((m: string) => m.trim()).filter(Boolean)
+        : [];
+    const manual = {
+      product_name: typeof body.product_name === 'string' ? body.product_name : undefined,
+      packaging_type: typeof body.packaging_type === 'string' ? body.packaging_type : undefined,
+      detected_materials: manualMaterials,
+    };
+
+    // Run Coordinator Agent (Vision → Research → DIY, or manual → Research → DIY)
     console.log('Starting Coordinator Agent...');
-    const coordinatorResult = await runCoordinatorAgent(base64Image);
+    const coordinatorResult = await runCoordinatorAgent(base64Image, manual);
 
     if (!coordinatorResult.success && !coordinatorResult.data) {
       return NextResponse.json({
         success: false,
+        // Surface the real reason instead of a generic failure: the
+        // frontend previously showed only "Scan failed" for every 500.
+        error: coordinatorResult.errors.join('; ') || 'Scan failed',
         errors: coordinatorResult.errors,
         executionTimeMs: coordinatorResult.executionTimeMs,
       }, { status: 500 });

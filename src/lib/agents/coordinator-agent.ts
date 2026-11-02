@@ -19,36 +19,66 @@ export interface CoordinatorResult {
   executionTimeMs: number;
 }
 
-export async function runCoordinatorAgent(imageBase64: string): Promise<CoordinatorResult> {
+export interface ManualScanInput {
+  product_name?: string;
+  packaging_type?: string;
+  detected_materials?: string[];
+}
+
+/**
+ * Free-plan fallback: when the caller supplies a product name and a
+ * packaging type, Vision AI is skipped entirely. This keeps scans working
+ * on backends where the Insforge AI gateway is unavailable (for example,
+ * gated behind a paid plan), using only the deterministic research agent
+ * and the DIY agent's built-in fallback ideas.
+ */
+export async function runCoordinatorAgent(
+  imageBase64: string,
+  manual?: ManualScanInput,
+): Promise<CoordinatorResult> {
   const startTime = Date.now();
   const errors: string[] = [];
   const partialData: Partial<ScanResult> = {};
 
   try {
-    // Step 1: Vision Agent
-    console.log('Coordinator: Running Vision Agent...');
-    const { result: visionResult, error: visionError } = await runVisionAgent(imageBase64);
-    
-    if (visionError || !visionResult) {
-      errors.push(`Vision Agent failed: ${visionError?.message || 'Unknown error'}`);
-      return {
-        success: false,
-        errors,
-        executionTimeMs: Date.now() - startTime,
-      };
-    }
+    const manualProduct = manual?.product_name?.trim();
+    const manualPackaging = manual?.packaging_type?.trim();
+    const manualMaterials = (manual?.detected_materials || [])
+      .map((m) => m.trim())
+      .filter(Boolean);
 
-    partialData.product_name = visionResult.product_name;
-    partialData.detected_materials = visionResult.detected_materials;
-    partialData.label_text = visionResult.label_text;
-    partialData.packaging_type = visionResult.packaging_type;
+    if (manualProduct && manualPackaging) {
+      console.log('Coordinator: Skipping Vision Agent, using manual details...');
+      partialData.product_name = manualProduct;
+      partialData.packaging_type = manualPackaging;
+      partialData.detected_materials = manualMaterials.length > 0 ? manualMaterials : ['mixed plastic'];
+      partialData.label_text = 'Entered manually (AI vision unavailable)';
+    } else {
+      // Step 1: Vision Agent
+      console.log('Coordinator: Running Vision Agent...');
+      const { result: visionResult, error: visionError } = await runVisionAgent(imageBase64);
+
+      if (visionError || !visionResult) {
+        errors.push(`Vision Agent failed: ${visionError?.message || 'Unknown error'}`);
+        return {
+          success: false,
+          errors,
+          executionTimeMs: Date.now() - startTime,
+        };
+      }
+
+      partialData.product_name = visionResult.product_name;
+      partialData.detected_materials = visionResult.detected_materials;
+      partialData.label_text = visionResult.label_text;
+      partialData.packaging_type = visionResult.packaging_type;
+    }
 
     // Step 2 & 3: Run Research and DIY agents in PARALLEL for speed
     console.log('Coordinator: Running Research and DIY Agents in parallel...');
     
     const [researchResult, diyResult] = await Promise.all([
-      runResearchAgent(visionResult.detected_materials, visionResult.packaging_type),
-      runDIYAgent(visionResult.packaging_type, visionResult.detected_materials),
+      runResearchAgent(partialData.detected_materials!, partialData.packaging_type!),
+      runDIYAgent(partialData.packaging_type!, partialData.detected_materials!),
     ]);
 
     // Process Research Agent result
@@ -63,11 +93,15 @@ export async function runCoordinatorAgent(imageBase64: string): Promise<Coordina
       }));
     }
 
-    // Process DIY Agent result
-    if (diyResult.error || !diyResult.ideas) {
-      errors.push(`DIY Agent failed: ${diyResult.error?.message || 'Unknown error'}`);
-    } else {
+    // Process DIY Agent result. The DIY agent returns built-in fallback
+    // ideas even when its AI call fails, so keep those ideas usable.
+    if (diyResult.ideas && diyResult.ideas.length > 0) {
       partialData.diy_ideas = diyResult.ideas;
+    }
+    if (diyResult.error) {
+      errors.push(`DIY Agent failed, using fallback ideas: ${diyResult.error.message || 'Unknown error'}`);
+    } else if (!diyResult.ideas || diyResult.ideas.length === 0) {
+      errors.push('DIY Agent failed: Unknown error');
     }
 
     const executionTimeMs = Date.now() - startTime;

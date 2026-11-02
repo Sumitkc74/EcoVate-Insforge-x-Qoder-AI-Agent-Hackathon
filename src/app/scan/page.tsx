@@ -20,6 +20,11 @@ export default function ScanPage() {
   const [showCamera, setShowCamera] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Manual details: the free-plan path. When product name + packaging type
+  // are both filled in, the scan skips AI vision entirely.
+  const [productName, setProductName] = useState('');
+  const [packagingType, setPackagingType] = useState('');
+  const [materialsText, setMaterialsText] = useState('');
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,22 +147,30 @@ export default function ScanPage() {
       reader.readAsDataURL(selectedFile);
       const base64Image = await base64Promise;
 
-      // Call the scan API with user ID
+      // Call the scan API with user ID. Manual details are sent only when
+      // both product name and packaging type are filled in; otherwise the
+      // server tries AI vision first.
+      const manualReady = productName.trim() !== '' && packagingType !== '';
       const response = await fetch('/api/scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           image: base64Image,
           userId: userData.user.id,
+          ...(manualReady ? {
+            product_name: productName.trim(),
+            packaging_type: packagingType,
+            materials: materialsText.split(',').map((m) => m.trim()).filter(Boolean),
+          } : {}),
         }),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Scan failed');
+        throw new Error(result.error || (result.errors ? result.errors.join('; ') : 'Scan failed'));
       }
 
       // Navigate to results page with scan data
@@ -171,13 +184,16 @@ export default function ScanPage() {
       setError((err as Error).message);
       setIsScanning(false);
     }
-  }, [selectedFile, router]);
+  }, [selectedFile, router, productName, packagingType, materialsText]);
 
   // Reset selection
   const handleReset = useCallback(() => {
     setPreviewImage(null);
     setSelectedFile(null);
     setError(null);
+    setProductName('');
+    setPackagingType('');
+    setMaterialsText('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -285,8 +301,42 @@ export default function ScanPage() {
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-sm text-red-600">{error}</p>
+                  <p className="text-sm text-red-600 mt-1">AI vision is unavailable on the free plan. Fill in the product name and packaging type below, then tap Analyze Product again — that path needs no AI vision.</p>
                 </div>
               )}
+              <div className="space-y-3 border border-gray-200 rounded-xl p-3">
+                <p className="text-sm font-semibold text-gray-900">Or enter the details yourself (no AI needed)</p>
+                <input
+                  type="text"
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  placeholder="Product name, e.g. Water bottle"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <select
+                  value={packagingType}
+                  onChange={(e) => setPackagingType(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">Packaging type</option>
+                  <option value="bottle">Bottle</option>
+                  <option value="box">Box</option>
+                  <option value="bag">Bag</option>
+                  <option value="jar">Jar</option>
+                  <option value="can">Can</option>
+                  <option value="wrapper">Wrapper</option>
+                  <option value="container">Container</option>
+                  <option value="carton">Carton</option>
+                </select>
+                <input
+                  type="text"
+                  value={materialsText}
+                  onChange={(e) => setMaterialsText(e.target.value)}
+                  placeholder="Materials, comma separated, e.g. plastic, paper"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-gray-500">With a product name and packaging type filled in, the scan skips AI vision and still gives impact and DIY ideas.</p>
+              </div>
               <button
                 onClick={handleScan}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
