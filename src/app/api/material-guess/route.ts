@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 
+// Give Gemini room to answer an image prompt on a cold start:
+// the free-plan function limit is 60s, so the fetch abort sits
+// just inside it at 55s.
+export const maxDuration = 60;
+
 // Gemini free-tier material guess. The key lives only in the
 // server environment (GEMINI_API_KEY, set in Vercel), never in
 // the browser code and never in the repo. Without a key this
@@ -64,7 +69,7 @@ export async function POST(request: Request) {
             },
           ],
         }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(55000),
       },
     );
 
