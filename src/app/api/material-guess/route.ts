@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 // the browser code and never in the repo. Without a key this
 // route says so plainly instead of failing silently, so the
 // button can tell the user what setup is still missing.
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.8-flash';
 const MATERIALS = [
   'glass',
   'PET plastic',
