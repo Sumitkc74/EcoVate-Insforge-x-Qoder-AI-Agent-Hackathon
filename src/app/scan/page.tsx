@@ -179,10 +179,18 @@ export default function ScanPage() {
         throw new Error(result.error || (result.errors ? result.errors.join('; ') : 'Scan failed'));
       }
 
-      // Navigate to results page with scan data
+      // Navigate to results page with scan data. Pass the save
+      // diagnostic through when the scan was not saved, so the results
+      // page can show the real database error instead of a false
+      // "saved" impression.
       const queryParams = new URLSearchParams({
         scanId: result.scanId || '',
         data: JSON.stringify(result.data),
+        ...(result.saveError ? {
+          saveError: result.saveError,
+          version: result.version || '',
+          scanSaved: String(result.scanSaved ?? false),
+        } : {}),
       });
       
       router.push(`/results?${queryParams.toString()}`);

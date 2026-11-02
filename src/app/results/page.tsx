@@ -27,11 +27,13 @@ function ResultsContent() {
   const [scanData, setScanData] = useState<ScanResult | null>(null);
   const [scanId, setScanId] = useState<string>('');
   const [selectedDIY, setSelectedDIY] = useState<DIYIdea | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [apiVersion, setApiVersion] = useState<string>('');
 
   useEffect(() => {
     const dataParam = searchParams.get('data');
     const idParam = searchParams.get('scanId');
-    
+
     if (dataParam) {
       try {
         setScanData(JSON.parse(dataParam));
@@ -42,6 +44,8 @@ function ResultsContent() {
     if (idParam) {
       setScanId(idParam);
     }
+    setSaveError(searchParams.get('saveError'));
+    setApiVersion(searchParams.get('version') || '');
   }, [searchParams]);
 
   const handleDIYSelect = (diy: DIYIdea) => {
@@ -110,6 +114,13 @@ function ResultsContent() {
 
       {/* Product Header */}
       <div className="max-w-md mx-auto px-4 py-6">
+        {(saveError || scanId.startsWith('temp_')) && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
+            <p className="text-sm font-semibold text-red-700">This scan was not saved to your history.</p>
+            {saveError && <p className="text-sm text-red-600 mt-1">{saveError}</p>}
+            {apiVersion && <p className="text-xs text-red-500 mt-1">Scan API: {apiVersion}</p>}
+          </div>
+        )}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-1">{scanData.product_name}</h2>
           <p className="text-gray-500 capitalize">{scanData.packaging_type}</p>

@@ -10,6 +10,15 @@ import { runCoordinatorAgent } from '@/lib/agents';
 import { serverDb, auth } from '@/lib/insforge';
 import { uploadImage } from '@/lib/storage';
 
+// Diagnostic marker: GET /api/scan returns this version, so a live
+// check can prove which code the deployed site is actually running.
+// Bump it on every diagnostic change.
+export const SCAN_API_VERSION = 'diag1-fk-upsert';
+
+export async function GET() {
+  return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Parse JSON body first to get userId
@@ -90,6 +99,13 @@ export async function POST(request: NextRequest) {
       // Continue without image URL - non-critical error
     }
 
+    // Diagnostic fields: previously a failed scan insert was only
+    // logged server-side (logs are not reachable here) and the client
+    // silently fell back to a temporary ID, so the real error was
+    // invisible. Return it in the response instead.
+    let profileErrorMsg: string | null = null;
+    let dbErrorMsg: string | null = null;
+
     // Ensure the public.users row exists first: scans.user_id is a
     // foreign key to public.users(id), and new sign-ins never get a row
     // there (the callback's client-side profile insert is blocked by
@@ -112,9 +128,11 @@ export async function POST(request: NextRequest) {
           sustainability_score: 0,
         }], { onConflict: 'id' });
       if (profileError) {
+        profileErrorMsg = `${(profileError as { code?: string }).code || ''} ${(profileError as { message?: string }).message || String(profileError)}`.trim();
         console.error('Profile upsert error:', profileError);
       }
     } catch (profileErr) {
+      profileErrorMsg = (profileErr as Error).message;
       console.error('Profile upsert exception:', profileErr);
     }
 
@@ -138,11 +156,13 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (dbError) {
+        dbErrorMsg = `${(dbError as { code?: string }).code || ''} ${(dbError as { message?: string }).message || String(dbError)}`.trim();
         console.error('Database error:', dbError);
       } else if (scanRecord) {
         scanId = scanRecord.id;
       }
     } catch (dbErr) {
+      dbErrorMsg = (dbErr as Error).message;
       console.error('Database insert error:', dbErr);
     }
 
@@ -170,6 +190,10 @@ export async function POST(request: NextRequest) {
       data: coordinatorResult.data,
       errors: coordinatorResult.errors.length > 0 ? coordinatorResult.errors : undefined,
       executionTimeMs: coordinatorResult.executionTimeMs,
+      version: SCAN_API_VERSION,
+      scanSaved: scanId !== null && !scanId.startsWith('temp_'),
+      saveError: dbErrorMsg,
+      profileError: profileErrorMsg,
     });
 
   } catch (error) {
