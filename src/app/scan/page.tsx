@@ -237,6 +237,13 @@ export default function ScanPage() {
     setImageCheckError(null);
     setImageCheck('');
     try {
+      // Load the full TensorFlow.js package first: it registers
+      // the WebGL/CPU backends the model needs to run. Importing
+      // coco-ssd alone leaves no backend registered, so detect()
+      // fails in the browser even though it works in Node tests
+      // that import @tensorflow/tfjs explicitly.
+      const tf = await import('@tensorflow/tfjs');
+      await tf.ready();
       const cocoSsd = await import('@tensorflow-models/coco-ssd');
       const model = await cocoSsd.load();
       try {
