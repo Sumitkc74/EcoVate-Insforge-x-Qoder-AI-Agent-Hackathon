@@ -23,6 +23,8 @@ export interface ManualScanInput {
   product_name?: string;
   packaging_type?: string;
   detected_materials?: string[];
+  // Text read from the image by the free on-device OCR step.
+  label_text?: string;
 }
 
 /**
@@ -52,7 +54,11 @@ export async function runCoordinatorAgent(
       partialData.product_name = manualProduct;
       partialData.packaging_type = manualPackaging;
       partialData.detected_materials = manualMaterials.length > 0 ? manualMaterials : ['mixed plastic'];
-      partialData.label_text = 'Entered manually (AI vision unavailable)';
+      // Prefer the text actually read from the image; otherwise
+      // keep the manual-entry note.
+      partialData.label_text = manual?.label_text?.trim()
+        ? manual.label_text.trim()
+        : 'Entered manually (AI vision unavailable)';
     } else {
       // Step 1: Vision Agent
       console.log('Coordinator: Running Vision Agent...');

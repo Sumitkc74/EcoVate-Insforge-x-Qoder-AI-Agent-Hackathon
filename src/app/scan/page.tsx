@@ -25,6 +25,13 @@ export default function ScanPage() {
   const [productName, setProductName] = useState('');
   const [packagingType, setPackagingType] = useState('');
   const [materialsText, setMaterialsText] = useState('');
+  // Image-to-text (OCR): free, runs on the device with Tesseract.js.
+  // No paid AI, no API key, and the image is never sent to an AI
+  // gateway for this step. The extracted text is shown for the user
+  // to check, and it is sent as the scan's label text.
+  const [ocrText, setOcrText] = useState('');
+  const [isOcrRunning, setIsOcrRunning] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,6 +44,8 @@ export default function ScanPage() {
       setSelectedFile(file);
       setPreviewImage(URL.createObjectURL(file));
       setError(null);
+      setOcrText('');
+      setOcrError(null);
     }
   }, []);
 
@@ -119,6 +128,70 @@ export default function ScanPage() {
     }
   }, []);
 
+  // Read the text printed on the packaging (OCR). This is the
+  // image-to-text step that replaces the paid Vision AI call: it
+  // runs entirely in the browser, suggests a packaging type and
+  // materials only when those fields are still empty, and never
+  // overwrites anything the user already typed.
+  const handleReadText = useCallback(async () => {
+    if (!previewImage) {
+      setOcrError('Please select or capture an image first');
+      return;
+    }
+    setIsOcrRunning(true);
+    setOcrError(null);
+    try {
+      // Dynamic import so the OCR worker code is only loaded when
+      // the user asks for it, and never during server rendering.
+      const { createWorker } = await import('tesseract.js');
+      const worker = await createWorker('eng');
+      try {
+        const { data } = await worker.recognize(previewImage);
+        const text = (data.text || '').trim();
+        setOcrText(text);
+        if (!text) {
+          setOcrError('No readable text found on this image. You can still enter the details yourself below.');
+          return;
+        }
+        const lower = text.toLowerCase();
+        // Suggest a packaging type from the printed text, if unset.
+        if (!packagingType) {
+          const packagingWords = ['bottle', 'jar', 'can', 'box', 'bag', 'carton', 'wrapper', 'container'];
+          const foundPackaging = packagingWords.find((word) => new RegExp(`\\b${word}\\b`).test(lower));
+          if (foundPackaging) {
+            setPackagingType(foundPackaging);
+          }
+        }
+        // Suggest materials from the printed text, if unset.
+        if (!materialsText.trim()) {
+          const materialWords: Array<[RegExp, string]> = [
+            [/\bpet\b|polyethylene terephthalate/, 'PET plastic'],
+            [/\bhdpe\b|high-density polyethylene/, 'HDPE plastic'],
+            [/\bglass\b/, 'glass'],
+            [/\balumin(i)?um\b/, 'aluminum'],
+            [/\bsteel\b/, 'steel'],
+            [/\bcardboard\b/, 'cardboard'],
+            [/\bpaper\b/, 'paper'],
+            [/\bplastic\b/, 'mixed plastic'],
+          ];
+          const foundMaterials = materialWords
+            .filter(([pattern]) => pattern.test(lower))
+            .map(([, material]) => material);
+          if (foundMaterials.length > 0) {
+            setMaterialsText(foundMaterials.join(', '));
+          }
+        }
+      } finally {
+        await worker.terminate();
+      }
+    } catch (err) {
+      console.error('OCR error:', err);
+      setOcrError('Could not read text from this image. Please try again or enter the details yourself below.');
+    } finally {
+      setIsOcrRunning(false);
+    }
+  }, [previewImage, packagingType, materialsText]);
+
   // Submit scan
   const handleScan = useCallback(async () => {
     if (!selectedFile) {
@@ -169,6 +242,9 @@ export default function ScanPage() {
             product_name: productName.trim(),
             packaging_type: packagingType,
             materials: materialsText.split(',').map((m) => m.trim()).filter(Boolean),
+            // Text read from the image by the free OCR step, shown
+            // on the results page as the scan's label text.
+            ...(ocrText.trim() ? { label_text: ocrText.trim() } : {}),
           } : {}),
         }),
       });
@@ -198,7 +274,7 @@ export default function ScanPage() {
       setError((err as Error).message);
       setIsScanning(false);
     }
-  }, [selectedFile, router, productName, packagingType, materialsText]);
+  }, [selectedFile, router, productName, packagingType, materialsText, ocrText]);
 
   // Reset selection
   const handleReset = useCallback(() => {
@@ -208,6 +284,8 @@ export default function ScanPage() {
     setProductName('');
     setPackagingType('');
     setMaterialsText('');
+    setOcrText('');
+    setOcrError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -319,7 +397,32 @@ export default function ScanPage() {
                 </div>
               )}
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
-                <p className="text-sm font-semibold text-gray-900">Or enter the details yourself (no AI needed)</p>
+                <p className="text-sm font-semibold text-gray-900">Step 1: Read the text on the packaging (free)</p>
+                <p className="text-xs text-gray-500">This reads the printed text from your photo on your device — no paid AI, no API key. It may suggest a packaging type and materials below, which you can correct.</p>
+                <button
+                  onClick={handleReadText}
+                  disabled={isOcrRunning}
+                  className="w-full bg-white border border-green-500 hover:bg-green-50 disabled:opacity-50 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
+                >
+                  {isOcrRunning ? 'Reading text…' : 'Read text from image'}
+                </button>
+                {ocrError && (
+                  <p className="text-sm text-red-600">{ocrError}</p>
+                )}
+                {ocrText && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-gray-700">Text found on the image (you can edit it)</p>
+                    <textarea
+                      value={ocrText}
+                      onChange={(e) => setOcrText(e.target.value)}
+                      rows={4}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3 border border-gray-200 rounded-xl p-3">
+                <p className="text-sm font-semibold text-gray-900">Step 2: Enter the details yourself (no AI needed)</p>
                 <input
                   type="text"
                   value={productName}

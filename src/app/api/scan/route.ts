@@ -13,7 +13,7 @@ import { uploadImage } from '@/lib/storage';
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'diag1-fk-upsert';
+export const SCAN_API_VERSION = 'ocr1-free';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
       product_name: typeof body.product_name === 'string' ? body.product_name : undefined,
       packaging_type: typeof body.packaging_type === 'string' ? body.packaging_type : undefined,
       detected_materials: manualMaterials,
+      label_text: typeof body.label_text === 'string' ? body.label_text : undefined,
     };
 
     // Run Coordinator Agent (Vision → Research → DIY, or manual → Research → DIY)
