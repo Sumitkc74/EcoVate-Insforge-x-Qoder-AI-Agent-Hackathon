@@ -90,6 +90,34 @@ export async function POST(request: NextRequest) {
       // Continue without image URL - non-critical error
     }
 
+    // Ensure the public.users row exists first: scans.user_id is a
+    // foreign key to public.users(id), and new sign-ins never get a row
+    // there (the callback's client-side profile insert is blocked by
+    // RLS, which has no INSERT policy for users). Without this row the
+    // scan insert fails on the foreign key and history stays empty,
+    // even with the server-side client that bypasses RLS.
+    try {
+      const userEmail = typeof body.userEmail === 'string' && body.userEmail
+        ? body.userEmail
+        : `${userId}@ecovate.local`;
+      const { error: profileError } = await serverDb
+        .from('users')
+        .upsert([{
+          id: userId,
+          email: userEmail,
+          name: typeof body.userName === 'string' && body.userName
+            ? body.userName
+            : userEmail.split('@')[0],
+          avatar: typeof body.userAvatar === 'string' ? body.userAvatar : null,
+          sustainability_score: 0,
+        }], { onConflict: 'id' });
+      if (profileError) {
+        console.error('Profile upsert error:', profileError);
+      }
+    } catch (profileErr) {
+      console.error('Profile upsert exception:', profileErr);
+    }
+
     // Save scan to database
     const scanData = {
       user_id: userId,

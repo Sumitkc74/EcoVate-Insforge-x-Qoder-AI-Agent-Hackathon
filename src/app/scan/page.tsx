@@ -159,6 +159,12 @@ export default function ScanPage() {
         body: JSON.stringify({
           image: base64Image,
           userId: userData.user.id,
+          // Needed so the server can create the public.users row that
+          // scans.user_id references; without it the scan insert fails
+          // on the foreign key and history stays empty.
+          userEmail: userData.user.email,
+          userName: (userData.user as { profile?: { name?: string } }).profile?.name,
+          userAvatar: (userData.user as { profile?: { avatar_url?: string } }).profile?.avatar_url,
           ...(manualReady ? {
             product_name: productName.trim(),
             packaging_type: packagingType,
