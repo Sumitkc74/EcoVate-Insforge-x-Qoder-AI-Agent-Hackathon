@@ -32,6 +32,22 @@ export default function ScanPage() {
   const [ocrText, setOcrText] = useState('');
   const [isOcrRunning, setIsOcrRunning] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
+  // Image check: free, runs on the device with a COCO-SSD object
+  // detector (TensorFlow.js). It identifies the packaging shape
+  // (e.g. a bottle) even when there is no printed text. It cannot
+  // tell the material, so it never suggests a material, and it
+  // never overwrites a packaging type the user already chose.
+  const [imageCheck, setImageCheck] = useState('');
+  const [isImageCheckRunning, setIsImageCheckRunning] = useState(false);
+  const [imageCheckError, setImageCheckError] = useState<string | null>(null);
+  // Gemini material guess: free tier only, via a server route so
+  // the API key never reaches the browser. The guess is shown
+  // for the user to confirm and is never applied on its own,
+  // because appearance alone cannot prove a material.
+  const [materialGuess, setMaterialGuess] = useState('');
+  const [materialGuessRaw, setMaterialGuessRaw] = useState('');
+  const [isMaterialGuessRunning, setIsMaterialGuessRunning] = useState(false);
+  const [materialGuessError, setMaterialGuessError] = useState<string | null>(null);
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,6 +62,11 @@ export default function ScanPage() {
       setError(null);
       setOcrText('');
       setOcrError(null);
+      setImageCheck('');
+      setImageCheckError(null);
+      setMaterialGuess('');
+      setMaterialGuessRaw('');
+      setMaterialGuessError(null);
     }
   }, []);
 
@@ -116,6 +137,13 @@ export default function ScanPage() {
             const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' });
             setSelectedFile(file);
             setPreviewImage(URL.createObjectURL(file));
+            setOcrText('');
+            setOcrError(null);
+            setImageCheck('');
+            setImageCheckError(null);
+            setMaterialGuess('');
+            setMaterialGuessRaw('');
+            setMaterialGuessError(null);
             setShowCamera(false);
             // Stop camera stream
             if (streamRef.current) {
@@ -191,6 +219,95 @@ export default function ScanPage() {
       setIsOcrRunning(false);
     }
   }, [previewImage, packagingType, materialsText]);
+
+  // Identify the packaging shape from the photo itself, without
+  // any printed text. Runs entirely in the browser: the model is
+  // loaded on demand from the TensorFlow model CDN, no paid AI,
+  // no API key, and the image is never sent to a server for this
+  // step. Only a recognised bottle suggests a packaging type, and
+  // only when that field is still empty. Material is never
+  // suggested here, because shape alone cannot tell glass from
+  // plastic.
+  const handleIdentifyImage = useCallback(async () => {
+    if (!previewImage) {
+      setImageCheckError('Please select or capture an image first');
+      return;
+    }
+    setIsImageCheckRunning(true);
+    setImageCheckError(null);
+    setImageCheck('');
+    try {
+      const cocoSsd = await import('@tensorflow-models/coco-ssd');
+      const model = await cocoSsd.load();
+      try {
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error('Could not load image'));
+          image.src = previewImage;
+        });
+        const predictions = (await model.detect(img))
+          .filter((p) => p.score >= 0.5)
+          .sort((a, b) => b.score - a.score);
+        if (predictions.length === 0) {
+          setImageCheck('No packaging shape recognised. You can still enter the details yourself below.');
+          return;
+        }
+        setImageCheck(predictions.map((p) => `${p.class} (${Math.round(p.score * 100)}%)`).join(', '));
+        if (!packagingType && predictions.some((p) => p.class === 'bottle')) {
+          setPackagingType('bottle');
+        }
+      } finally {
+        model.dispose();
+      }
+    } catch (err) {
+      console.error('Image check error:', err);
+      setImageCheckError('Could not identify the packaging from this image. Please enter the details yourself below.');
+    } finally {
+      setIsImageCheckRunning(false);
+    }
+  }, [previewImage, packagingType]);
+
+  // Ask Gemini (free tier, via the server route) to guess the
+  // material from the photo. The guess is only displayed, with
+  // a "Use this material" button for the user to confirm it —
+  // it is never written into the materials field on its own.
+  const handleGuessMaterial = useCallback(async () => {
+    if (!selectedFile) {
+      setMaterialGuessError('Please select or capture an image first');
+      return;
+    }
+    setIsMaterialGuessRunning(true);
+    setMaterialGuessError(null);
+    setMaterialGuess('');
+    setMaterialGuessRaw('');
+    try {
+      const base64Image = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Could not read image'));
+        reader.readAsDataURL(selectedFile);
+      });
+      const response = await fetch('/api/material-guess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Gemini could not guess the material.');
+      }
+      setMaterialGuess(result.material || '');
+      setMaterialGuessRaw(result.raw || '');
+      if (!result.material) {
+        setMaterialGuessError('Gemini could not tell the material from this photo. Enter it yourself below.');
+      }
+    } catch (err) {
+      setMaterialGuessError((err as Error).message);
+    } finally {
+      setIsMaterialGuessRunning(false);
+    }
+  }, [selectedFile]);
 
   // Submit scan
   const handleScan = useCallback(async () => {
@@ -286,6 +403,11 @@ export default function ScanPage() {
     setMaterialsText('');
     setOcrText('');
     setOcrError(null);
+    setImageCheck('');
+    setImageCheckError(null);
+    setMaterialGuess('');
+    setMaterialGuessRaw('');
+    setMaterialGuessError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -397,8 +519,8 @@ export default function ScanPage() {
                 </div>
               )}
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
-                <p className="text-sm font-semibold text-gray-900">Step 1: Read the text on the packaging (free)</p>
-                <p className="text-xs text-gray-500">This reads the printed text from your photo on your device — no paid AI, no API key. It may suggest a packaging type and materials below, which you can correct.</p>
+                <p className="text-sm font-semibold text-gray-900">Step 1: Read the image (free)</p>
+                <p className="text-xs text-gray-500">Both checks run on your device — no paid AI, no API key. Reading text may suggest a packaging type and materials below; identifying the shape works even with no printed text, but it only suggests a packaging type, never the material. You can correct either suggestion.</p>
                 <button
                   onClick={handleReadText}
                   disabled={isOcrRunning}
@@ -418,6 +540,45 @@ export default function ScanPage() {
                       rows={4}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                     />
+                  </div>
+                )}
+                <button
+                  onClick={handleIdentifyImage}
+                  disabled={isImageCheckRunning}
+                  className="w-full bg-white border border-green-500 hover:bg-green-50 disabled:opacity-50 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
+                >
+                  {isImageCheckRunning ? 'Identifying…' : 'Identify packaging from image'}
+                </button>
+                {imageCheckError && (
+                  <p className="text-sm text-red-600">{imageCheckError}</p>
+                )}
+                {imageCheck && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-gray-700">Objects found in the image</p>
+                    <p className="text-sm text-gray-700">{imageCheck}</p>
+                    <p className="text-xs text-gray-500">This identifies the shape only, not the material — please check the packaging type below and fill in the material yourself.</p>
+                  </div>
+                )}
+                <button
+                  onClick={handleGuessMaterial}
+                  disabled={isMaterialGuessRunning}
+                  className="w-full bg-white border border-green-500 hover:bg-green-50 disabled:opacity-50 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
+                >
+                  {isMaterialGuessRunning ? 'Guessing material…' : 'Guess material with Gemini (free tier)'}
+                </button>
+                {materialGuessError && (
+                  <p className="text-sm text-red-600">{materialGuessError}</p>
+                )}
+                {materialGuess && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-700">Gemini guess: <span className="font-semibold">{materialGuess}</span>{materialGuessRaw ? ` — ${materialGuessRaw}` : ''}</p>
+                    <p className="text-xs text-gray-500">This is a guess from appearance only, not a measurement — please confirm it before using it.</p>
+                    <button
+                      onClick={() => setMaterialsText(materialGuess)}
+                      className="w-full bg-green-50 border border-green-500 hover:bg-green-100 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
+                    >
+                      Use this material
+                    </button>
                   </div>
                 )}
               </div>
