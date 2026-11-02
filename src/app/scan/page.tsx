@@ -30,25 +30,17 @@ export default function ScanPage() {
   // gateway for this step. The extracted text is shown for the user
   // to check, and it is sent as the scan's label text.
   const [ocrText, setOcrText] = useState('');
-  const [isOcrRunning, setIsOcrRunning] = useState(false);
-  const [ocrError, setOcrError] = useState<string | null>(null);
   // Image check: free, runs on the device with a COCO-SSD object
   // detector (TensorFlow.js). It identifies the packaging shape
   // (e.g. a bottle) even when there is no printed text. It cannot
   // tell the material, so it never suggests a material, and it
   // never overwrites a packaging type the user already chose.
   const [imageCheck, setImageCheck] = useState('');
-  const [isImageCheckRunning, setIsImageCheckRunning] = useState(false);
-  const [imageCheckError, setImageCheckError] = useState<string | null>(null);
   // Gemini material guess: free tier only, via a server route so
   // the API key never reaches the browser. The guess is shown
   // for the user to confirm and is never applied on its own,
   // because appearance alone cannot prove a material.
   const [materialGuess, setMaterialGuess] = useState('');
-  const [materialGuessRaw, setMaterialGuessRaw] = useState('');
-  const [isMaterialGuessRunning, setIsMaterialGuessRunning] = useState(false);
-  const [materialGuessError, setMaterialGuessError] = useState<string | null>(null);
-  const [materialGuessDetail, setMaterialGuessDetail] = useState('');
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -60,16 +52,12 @@ export default function ScanPage() {
       }
       setSelectedFile(file);
       setPreviewImage(URL.createObjectURL(file));
+      manualEditedRef.current.clear();
       setError(null);
       setOcrText('');
-      setOcrError(null);
-      setImageCheck('');
-      setImageCheckError(null);
-      setMaterialGuess('');
-      setMaterialGuessRaw('');
-      setMaterialGuessError(null);
-      setMaterialGuessDetail('');
-    }
+        setImageCheck('');
+        setMaterialGuess('');
+          }
   }, []);
 
   // Store stream in a ref so we can access it immediately
@@ -139,15 +127,11 @@ export default function ScanPage() {
             const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' });
             setSelectedFile(file);
             setPreviewImage(URL.createObjectURL(file));
+            manualEditedRef.current.clear();
             setOcrText('');
-            setOcrError(null);
-            setImageCheck('');
-            setImageCheckError(null);
-            setMaterialGuess('');
-            setMaterialGuessRaw('');
-            setMaterialGuessError(null);
-      setMaterialGuessDetail('');
-            setShowCamera(false);
+                    setImageCheck('');
+                    setMaterialGuess('');
+                              setShowCamera(false);
             // Stop camera stream
             if (streamRef.current) {
               streamRef.current.getTracks().forEach(track => track.stop());
@@ -159,57 +143,65 @@ export default function ScanPage() {
     }
   }, []);
 
-  // Read the text printed on the packaging (OCR). This is the
-  // image-to-text step that replaces the paid Vision AI call: it
-  // runs entirely in the browser, suggests a packaging type and
-  // materials only when those fields are still empty, and never
-  // overwrites anything the user already typed.
-  const handleReadText = useCallback(async () => {
-    if (!previewImage) {
-      setOcrError('Please select or capture an image first');
-      return;
-    }
-    setIsOcrRunning(true);
-    setOcrError(null);
+  // Automatic check: runs on its own when a photo is chosen, so
+  // the user never picks between steps. Best available source
+  // wins, in order: printed label text, then packaging shape,
+  // then a Gemini material guess. If Gemini fails, the
+  // label/shape results stand as the fallback — nothing blocks
+  // the user and no step has to be retried by hand.
+  const [autoStatus, setAutoStatus] = useState('');
+  const [isAutoRunning, setIsAutoRunning] = useState(false);
+  const autoForRef = useRef<string | null>(null);
+  const manualEditedRef = useRef<Set<string>>(new Set());
+
+  const runAutoCheck = useCallback(async () => {
+    if (!previewImage || !selectedFile) return;
+    setIsAutoRunning(true);
+    setAutoStatus('Checking your photo…');
+    setMaterialGuess('');
+    let localPackaging = packagingType;
+    let localMaterials = materialsText;
+    let localProduct = productName;
+    let labelText = '';
+    const sources: string[] = [];
+    let geminiFailed = false;
+
+    // 1. Printed label text (OCR, on the device).
     try {
-      // Dynamic import so the OCR worker code is only loaded when
-      // the user asks for it, and never during server rendering.
       const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('eng');
       try {
         const { data } = await worker.recognize(previewImage);
-        const text = (data.text || '').trim();
-        setOcrText(text);
-        if (!text) {
-          setOcrError('No readable text found on this image. You can still enter the details yourself below.');
-          return;
-        }
-        const lower = text.toLowerCase();
-        // Suggest a packaging type from the printed text, if unset.
-        if (!packagingType) {
-          const packagingWords = ['bottle', 'jar', 'can', 'box', 'bag', 'carton', 'wrapper', 'container'];
-          const foundPackaging = packagingWords.find((word) => new RegExp(`\\b${word}\\b`).test(lower));
-          if (foundPackaging) {
-            setPackagingType(foundPackaging);
+        labelText = (data.text || '').trim();
+        setOcrText(labelText);
+        if (labelText) {
+          const lower = labelText.toLowerCase();
+          if (!localPackaging) {
+            const packagingWords = ['bottle', 'jar', 'can', 'box', 'bag', 'carton', 'wrapper', 'container'];
+            const foundPackaging = packagingWords.find((word) => new RegExp(`\\b${word}\\b`).test(lower));
+            if (foundPackaging) {
+              localPackaging = foundPackaging;
+              sources.push('the label');
+            }
           }
-        }
-        // Suggest materials from the printed text, if unset.
-        if (!materialsText.trim()) {
-          const materialWords: Array<[RegExp, string]> = [
-            [/\bpet\b|polyethylene terephthalate/, 'PET plastic'],
-            [/\bhdpe\b|high-density polyethylene/, 'HDPE plastic'],
-            [/\bglass\b/, 'glass'],
-            [/\balumin(i)?um\b/, 'aluminum'],
-            [/\bsteel\b/, 'steel'],
-            [/\bcardboard\b/, 'cardboard'],
-            [/\bpaper\b/, 'paper'],
-            [/\bplastic\b/, 'mixed plastic'],
-          ];
-          const foundMaterials = materialWords
-            .filter(([pattern]) => pattern.test(lower))
-            .map(([, material]) => material);
-          if (foundMaterials.length > 0) {
-            setMaterialsText(foundMaterials.join(', '));
+          if (!localMaterials) {
+            const materialWords: Array<[RegExp, string]> = [
+              [/\bpet\b|polyethylene terephthalate/, 'PET plastic'],
+              [/\bhdpe\b|high-density polyethylene/, 'HDPE plastic'],
+              [/\bglass\b/, 'glass'],
+              [/\balumin(i)?um\b/, 'aluminum'],
+              [/\bsteel\b/, 'steel'],
+              [/\bcardboard\b/, 'cardboard'],
+              [/\bpaper\b/, 'paper'],
+              [/\bplastic\b/, 'mixed plastic'],
+            ];
+            const foundMaterials = materialWords
+              .filter(([pattern]) => pattern.test(lower))
+              .map(([, material]) => material);
+            if (foundMaterials.length > 0) {
+              localMaterials = foundMaterials.join(', ');
+              if (!sources.includes('the label')) sources.push('the label');
+            }
           }
         }
       } finally {
@@ -217,34 +209,11 @@ export default function ScanPage() {
       }
     } catch (err) {
       console.error('OCR error:', err);
-      setOcrError('Could not read text from this image. Please try again or enter the details yourself below.');
-    } finally {
-      setIsOcrRunning(false);
     }
-  }, [previewImage, packagingType, materialsText]);
 
-  // Identify the packaging shape from the photo itself, without
-  // any printed text. Runs entirely in the browser: the model is
-  // loaded on demand from the TensorFlow model CDN, no paid AI,
-  // no API key, and the image is never sent to a server for this
-  // step. Only a recognised bottle suggests a packaging type, and
-  // only when that field is still empty. Material is never
-  // suggested here, because shape alone cannot tell glass from
-  // plastic.
-  const handleIdentifyImage = useCallback(async () => {
-    if (!previewImage) {
-      setImageCheckError('Please select or capture an image first');
-      return;
-    }
-    setIsImageCheckRunning(true);
-    setImageCheckError(null);
-    setImageCheck('');
+    // 2. Packaging shape (on the device). Only a bottle suggests a
+    // packaging type, and shape alone never suggests a material.
     try {
-      // Load the full TensorFlow.js package first: it registers
-      // the WebGL/CPU backends the model needs to run. Importing
-      // coco-ssd alone leaves no backend registered, so detect()
-      // fails in the browser even though it works in Node tests
-      // that import @tensorflow/tfjs explicitly.
       const tf = await import('@tensorflow/tfjs');
       await tf.ready();
       const cocoSsd = await import('@tensorflow-models/coco-ssd');
@@ -257,73 +226,85 @@ export default function ScanPage() {
           image.src = previewImage;
         });
         const predictions = (await model.detect(img))
-          .filter((p) => p.score >= 0.5)
+          .filter((pred) => pred.score >= 0.5)
           .sort((a, b) => b.score - a.score);
-        if (predictions.length === 0) {
-          setImageCheck('No packaging shape recognised. You can still enter the details yourself below.');
-          return;
-        }
-        setImageCheck(predictions.map((p) => `${p.class} (${Math.round(p.score * 100)}%)`).join(', '));
-        if (!packagingType && predictions.some((p) => p.class === 'bottle')) {
-          setPackagingType('bottle');
+        if (predictions.length > 0) {
+          setImageCheck(predictions.map((pred) => `${pred.class} (${Math.round(pred.score * 100)}%)`).join(', '));
+          if (!localPackaging && predictions.some((pred) => pred.class === 'bottle')) {
+            localPackaging = 'bottle';
+            sources.push('the shape');
+          }
         }
       } finally {
         model.dispose();
       }
     } catch (err) {
       console.error('Image check error:', err);
-      setImageCheckError('Could not identify the packaging from this image. Please enter the details yourself below.');
-    } finally {
-      setIsImageCheckRunning(false);
     }
-  }, [previewImage, packagingType]);
 
-  // Ask Gemini (free tier, via the server route) to guess the
-  // material from the photo. The guess is only displayed, with
-  // a "Use this material" button for the user to confirm it —
-  // it is never written into the materials field on its own.
-  const handleGuessMaterial = useCallback(async () => {
-    if (!selectedFile) {
-      setMaterialGuessError('Please select or capture an image first');
-      return;
-    }
-    setIsMaterialGuessRunning(true);
-    setMaterialGuessError(null);
-      setMaterialGuessDetail('');
-    setMaterialGuess('');
-    setMaterialGuessRaw('');
-    try {
-      const base64Image = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => reject(new Error('Could not read image'));
-        reader.readAsDataURL(selectedFile);
-      });
-      const response = await fetch('/api/material-guess', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64Image }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        if (result.geminiDetail || result.geminiStatus) {
-          setMaterialGuessDetail(
-            `Gemini returned${result.geminiStatus ? ` status ${result.geminiStatus}` : ''}${result.geminiDetail ? `: ${result.geminiDetail}` : ''}`,
-          );
+    // 3. Gemini material guess, only if the material is still
+    // unknown. On failure the label/shape results above are the
+    // fallback, so the user is not left with nothing.
+    if (!localMaterials) {
+      try {
+        const base64Image = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Could not read image'));
+          reader.readAsDataURL(selectedFile);
+        });
+        const response = await fetch('/api/material-guess', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64Image }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Gemini could not guess the material.');
+        if (result.material) {
+          localMaterials = result.material;
+          setMaterialGuess(result.material);
+          sources.push('Gemini');
+        } else {
+          geminiFailed = true;
         }
-        throw new Error(result.error || 'Gemini could not guess the material.');
+      } catch (err) {
+        console.error('Gemini guess error:', err);
+        geminiFailed = true;
       }
-      setMaterialGuess(result.material || '');
-      setMaterialGuessRaw(result.raw || '');
-      if (!result.material) {
-        setMaterialGuessError('Gemini could not tell the material from this photo. Enter it yourself below.');
-      }
-    } catch (err) {
-      setMaterialGuessError((err as Error).message);
-    } finally {
-      setIsMaterialGuessRunning(false);
     }
-  }, [selectedFile]);
+
+    // A product name is needed for the scan to skip AI vision, so
+    // fall back to the label's first line, or the packaging type.
+    if (!localProduct) {
+      const firstLine = labelText.split('\n').map((line) => line.trim()).find(Boolean) || '';
+      localProduct = firstLine.slice(0, 40) || (localPackaging ? localPackaging.charAt(0).toUpperCase() + localPackaging.slice(1) : '');
+    }
+    // Manual edits win: only fill in fields the user has not
+    // typed in themselves while the check was running.
+    if (!manualEditedRef.current.has('packaging')) setPackagingType(localPackaging);
+    if (!manualEditedRef.current.has('materials')) setMaterialsText(localMaterials);
+    if (!manualEditedRef.current.has('product')) setProductName(localProduct);
+
+    if (localPackaging && localMaterials) {
+      setAutoStatus(
+        `Filled in automatically from ${sources.join(' and ')}. Check them below and correct anything wrong.` +
+        (geminiFailed ? ' Gemini was unavailable, so this uses the earlier result instead.' : ''),
+      );
+    } else if (localPackaging) {
+      setAutoStatus('Packaging found automatically. Add the material below if you know it.');
+    } else {
+      setAutoStatus('Could not read the photo automatically. Enter the details below.');
+    }
+    setIsAutoRunning(false);
+  }, [previewImage, selectedFile, packagingType, materialsText, productName]);
+
+  // Run the automatic check once per photo, as soon as it is chosen.
+  useEffect(() => {
+    if (previewImage && selectedFile && autoForRef.current !== previewImage) {
+      autoForRef.current = previewImage;
+      runAutoCheck();
+    }
+  }, [previewImage, selectedFile, runAutoCheck]);
 
   // Submit scan
   const handleScan = useCallback(async () => {
@@ -418,13 +399,12 @@ export default function ScanPage() {
     setPackagingType('');
     setMaterialsText('');
     setOcrText('');
-    setOcrError(null);
     setImageCheck('');
-    setImageCheckError(null);
     setMaterialGuess('');
-    setMaterialGuessRaw('');
-    setMaterialGuessError(null);
-      setMaterialGuessDetail('');
+      setAutoStatus('');
+    setIsAutoRunning(false);
+    autoForRef.current = null;
+    manualEditedRef.current.clear();
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -536,17 +516,12 @@ export default function ScanPage() {
                 </div>
               )}
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
-                <p className="text-sm font-semibold text-gray-900">Step 1: Read the image (free)</p>
-                <p className="text-xs text-gray-500">Both checks run on your device — no paid AI, no API key. Reading text may suggest a packaging type and materials below; identifying the shape works even with no printed text, but it only suggests a packaging type, never the material. You can correct either suggestion.</p>
-                <button
-                  onClick={handleReadText}
-                  disabled={isOcrRunning}
-                  className="w-full bg-white border border-green-500 hover:bg-green-50 disabled:opacity-50 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
-                >
-                  {isOcrRunning ? 'Reading text…' : 'Read text from image'}
-                </button>
-                {ocrError && (
-                  <p className="text-sm text-red-600">{ocrError}</p>
+                <p className="text-sm font-semibold text-gray-900">Photo details</p>
+                {isAutoRunning && (
+                  <p className="text-xs text-gray-700">Checking your photo…</p>
+                )}
+                {!isAutoRunning && autoStatus && (
+                  <p className="text-xs text-gray-700">{autoStatus}</p>
                 )}
                 {ocrText && (
                   <div className="space-y-1">
@@ -555,65 +530,32 @@ export default function ScanPage() {
                       value={ocrText}
                       onChange={(e) => setOcrText(e.target.value)}
                       rows={4}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
                     />
                   </div>
-                )}
-                <button
-                  onClick={handleIdentifyImage}
-                  disabled={isImageCheckRunning}
-                  className="w-full bg-white border border-green-500 hover:bg-green-50 disabled:opacity-50 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
-                >
-                  {isImageCheckRunning ? 'Identifying…' : 'Identify packaging from image'}
-                </button>
-                {imageCheckError && (
-                  <p className="text-sm text-red-600">{imageCheckError}</p>
                 )}
                 {imageCheck && (
                   <div className="space-y-1">
                     <p className="text-xs font-semibold text-gray-700">Objects found in the image</p>
                     <p className="text-sm text-gray-700">{imageCheck}</p>
-                    <p className="text-xs text-gray-500">This identifies the shape only, not the material — please check the packaging type below and fill in the material yourself.</p>
                   </div>
-                )}
-                <button
-                  onClick={handleGuessMaterial}
-                  disabled={isMaterialGuessRunning}
-                  className="w-full bg-white border border-green-500 hover:bg-green-50 disabled:opacity-50 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
-                >
-                  {isMaterialGuessRunning ? 'Guessing material…' : 'Guess material with Gemini (free tier)'}
-                </button>
-                {materialGuessError && (
-                  <p className="text-sm text-red-600">{materialGuessError}</p>
-                )}
-                {materialGuessDetail && (
-                  <p className="text-xs text-gray-500">{materialGuessDetail}</p>
                 )}
                 {materialGuess && (
-                  <div className="space-y-2">
-                    <p className="text-sm text-gray-700">Gemini guess: <span className="font-semibold">{materialGuess}</span>{materialGuessRaw ? ` — ${materialGuessRaw}` : ''}</p>
-                    <p className="text-xs text-gray-500">This is a guess from appearance only, not a measurement — please confirm it before using it.</p>
-                    <button
-                      onClick={() => setMaterialsText(materialGuess)}
-                      className="w-full bg-green-50 border border-green-500 hover:bg-green-100 text-green-700 font-medium py-2 px-4 rounded-xl transition-colors"
-                    >
-                      Use this material
-                    </button>
-                  </div>
+                  <p className="text-sm text-gray-700">Material guess: <span className="font-semibold">{materialGuess}</span></p>
                 )}
               </div>
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
-                <p className="text-sm font-semibold text-gray-900">Step 2: Enter the details yourself (no AI needed)</p>
+                <p className="text-sm font-semibold text-gray-900">Check or edit the details</p>
                 <input
                   type="text"
                   value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
+                  onChange={(e) => { manualEditedRef.current.add('product'); setProductName(e.target.value); }}
                   placeholder="Product name, e.g. Water bottle"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
                 />
                 <select
                   value={packagingType}
-                  onChange={(e) => setPackagingType(e.target.value)}
+                  onChange={(e) => { manualEditedRef.current.add('packaging'); setPackagingType(e.target.value); }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
                 >
                   <option value="">Packaging type</option>
@@ -629,11 +571,11 @@ export default function ScanPage() {
                 <input
                   type="text"
                   value={materialsText}
-                  onChange={(e) => setMaterialsText(e.target.value)}
+                  onChange={(e) => { manualEditedRef.current.add('materials'); setMaterialsText(e.target.value); }}
                   placeholder="Materials, comma separated, e.g. plastic, paper"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
                 />
-                <p className="text-xs text-gray-500">With a product name and packaging type filled in, the scan skips AI vision and still gives impact and DIY ideas.</p>
+                <p className="text-xs text-gray-700">With a product name and packaging type filled in, the scan skips AI vision and still gives impact and DIY ideas.</p>
               </div>
               <button
                 onClick={handleScan}

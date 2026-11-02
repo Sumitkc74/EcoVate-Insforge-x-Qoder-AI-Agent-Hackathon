@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { runVerificationAgent } from '@/lib/agents';
-import { db, auth } from '@/lib/insforge';
+import { serverDb, auth } from '@/lib/insforge';
+import { verifyWithGroq } from '@/lib/groq-vision';
 import { uploadImage } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
@@ -64,19 +64,59 @@ export async function POST(request: NextRequest) {
     const bytes = await imageFile.arrayBuffer();
     const base64Image = `data:${imageFile.type};base64,${Buffer.from(bytes).toString('base64')}`;
 
-    // Run Verification Agent
-    console.log('Running Verification Agent...');
-    const { result: verificationResult, error: verificationError } = await runVerificationAgent(
-      base64Image,
-      packagingType,
-      projectTitle
-    );
-
-    if (verificationError || !verificationResult) {
-      return NextResponse.json({
-        success: false,
-        error: verificationError?.message || 'Verification failed',
-      }, { status: 500 });
+    // Try Gemini (free tier, server-side key) to verify the photo.
+    // If Gemini is unavailable, the submission still succeeds as
+    // pending below — it never errors on a verification AI failure.
+    let verificationResult: { verified: boolean; confidence: number; feedback: string } | null = null;
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        const mimeMatch = base64Image.match(/^data:([^;]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        const rawBase64 = base64Image.replace(/^data:[^;]+;base64,/, '');
+        const geminiResponse = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+            signal: AbortSignal.timeout(25000),
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.` },
+                  { inlineData: { mimeType, data: rawBase64 } },
+                ],
+              }],
+            }),
+          },
+        );
+        if (geminiResponse.ok) {
+          const geminiJson = await geminiResponse.json();
+          const content = geminiJson?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('') || '';
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            verificationResult = {
+              verified: Boolean(parsed.verified),
+              confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
+              feedback: String(parsed.feedback || 'No feedback provided'),
+            };
+          }
+        }
+      } catch (err) {
+        console.error('Gemini verification unavailable, falling back to pending:', err);
+      }
+    }
+    // Second free attempt: Groq, before falling back to pending.
+    if (!verificationResult) {
+      verificationResult = await verifyWithGroq(base64Image, packagingType, projectTitle);
+    }
+    if (!verificationResult) {
+      verificationResult = {
+        verified: false,
+        confidence: 0,
+        feedback: 'Automatic verification is unavailable right now, so your project is saved as pending. You can check it in History.',
+      };
     }
 
     // Upload verification image
@@ -98,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     // Always save the verification attempt
     try {
-      await db.from('user_actions').insert([{
+      await serverDb.from('user_actions').insert([{
         user_id: userId,
         scan_id: scanId,
         action_type: actionType,
@@ -112,14 +152,14 @@ export async function POST(request: NextRequest) {
     // If approved, update user's cumulative score
     if (isApproved && impactScore > 0) {
       try {
-        const { data: userData } = await db
+        const { data: userData } = await serverDb
           .from('users')
           .select('sustainability_score')
           .eq('id', userId)
           .single();
 
         if (userData) {
-          await db
+          await serverDb
             .from('users')
             .update({ 
               sustainability_score: (userData.sustainability_score || 0) + impactScore 
@@ -149,4 +189,4 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export const runtime = 'edge';
+export const maxDuration = 60;

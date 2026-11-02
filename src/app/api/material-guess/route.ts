@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
+import { guessMaterialWithGroq } from '@/lib/groq-vision';
 
-// Give Gemini room to answer an image prompt on a cold start:
-// the free-plan function limit is 60s, so the fetch abort sits
-// just inside it at 55s.
+// Two free attempts must fit inside the free-plan function
+// limit of 60s, so each gets 25s: Gemini first, then Groq.
 export const maxDuration = 60;
 
 // Gemini free-tier material guess. The key lives only in the
@@ -23,18 +23,10 @@ const MATERIALS = [
 ] as const;
 
 export async function GET() {
-  return NextResponse.json({ ok: true, configured: Boolean(process.env.GEMINI_API_KEY) });
+  return NextResponse.json({ ok: true, configured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) });
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'Gemini is not set up yet. Add a GEMINI_API_KEY in Vercel (Production) to enable this guess.' },
-      { status: 503 },
-    );
-  }
-
   let body: { image?: string };
   try {
     body = await request.json();
@@ -47,6 +39,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No image supplied' }, { status: 400 });
   }
   const [, mimeType, base64] = match;
+
+  // No Gemini key: Groq alone is still a valid attempt.
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
+    if (groqMaterial) {
+      return NextResponse.json({
+        material: groqMaterial,
+        raw: groqMaterial,
+        source: 'groq',
+        note: 'This is a model guess from appearance only — please confirm it before Analyze.',
+      });
+    }
+    return NextResponse.json(
+      { error: 'No material-guess model is set up yet. Add a GEMINI_API_KEY or GROQ_API_KEY in Vercel (Production) to enable this guess.' },
+      { status: 503 },
+    );
+  }
 
   try {
     const response = await fetch(
@@ -69,7 +79,7 @@ export async function POST(request: Request) {
             },
           ],
         }),
-        signal: AbortSignal.timeout(55000),
+        signal: AbortSignal.timeout(25000),
       },
     );
 
@@ -80,6 +90,15 @@ export async function POST(request: Request) {
       );
     }
     if (!response.ok) {
+      const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
+      if (groqMaterial) {
+        return NextResponse.json({
+          material: groqMaterial,
+          raw: groqMaterial,
+          source: 'groq',
+          note: 'Gemini was unavailable, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
+        });
+      }
       // Diagnostic: surface Gemini's own status and error message
       // (never the API key) so a failed guess can actually be
       // debugged from the page instead of hiding behind a generic
@@ -114,13 +133,34 @@ export async function POST(request: Request) {
         .trim() || '';
     const lower = raw.toLowerCase();
     const material = MATERIALS.find((m) => lower.startsWith(m.toLowerCase())) || null;
+    if (!material) {
+      const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
+      if (groqMaterial) {
+        return NextResponse.json({
+          material: groqMaterial,
+          raw: groqMaterial,
+          source: 'groq',
+          note: 'Gemini could not tell the material, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
+        });
+      }
+    }
     return NextResponse.json({
       material,
       raw,
+      source: 'gemini',
       note: 'This is a model guess from appearance only — please confirm it before Analyze.',
     });
   } catch (err) {
     console.error('Material guess error:', err);
+    const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
+    if (groqMaterial) {
+      return NextResponse.json({
+        material: groqMaterial,
+        raw: groqMaterial,
+        source: 'groq',
+        note: 'Gemini was unavailable, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
+      });
+    }
     return NextResponse.json(
       {
         error: 'Gemini could not guess the material. Enter it yourself instead.',
