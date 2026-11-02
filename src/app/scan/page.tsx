@@ -274,10 +274,20 @@ export default function ScanPage() {
     }
 
     // A product name is needed for the scan to skip AI vision, so
-    // fall back to the label's first line, or the packaging type.
+    // fall back to the label's first line — but only if it looks
+    // like real words. Garbled OCR noise (e.g. "5 - a" from a
+    // watermark) must never become the product name; in that case
+    // the packaging type itself is the product name.
     if (!localProduct) {
       const firstLine = labelText.split('\n').map((line) => line.trim()).find(Boolean) || '';
-      localProduct = firstLine.slice(0, 40) || (localPackaging ? localPackaging.charAt(0).toUpperCase() + localPackaging.slice(1) : '');
+      const letters = firstLine.replace(/[^a-z]/gi, '').length;
+      const looksLikeWords =
+        firstLine.length >= 3 &&
+        /[a-z]{4,}/i.test(firstLine) &&
+        letters / firstLine.length >= 0.6;
+      localProduct = looksLikeWords
+        ? firstLine.slice(0, 40)
+        : (localPackaging ? localPackaging.charAt(0).toUpperCase() + localPackaging.slice(1) : '');
     }
     // Manual edits win: only fill in fields the user has not
     // typed in themselves while the check was running.
