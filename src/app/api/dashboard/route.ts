@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db, auth } from '@/lib/insforge';
+import { serverDb, auth } from '@/lib/insforge';
 
 async function getDashboardData(userId: string) {
   // Get user profile (may fail due to RLS, provide defaults)
@@ -19,7 +19,7 @@ async function getDashboardData(userId: string) {
   };
 
   try {
-    const { data: profile, error: userError } = await db
+    const { data: profile, error: userError } = await serverDb
       .from('users')
       .select('*')
       .eq('id', userId)
@@ -39,7 +39,7 @@ async function getDashboardData(userId: string) {
   let scans: unknown[] = [];
   let scanErrorMsg: string | null = null;
   try {
-    const { data, error } = await db
+    const { data, error } = await serverDb
       .from('scans')
       .select('*')
       .eq('user_id', userId)
@@ -59,7 +59,7 @@ async function getDashboardData(userId: string) {
   // Get user actions
   let actions: unknown[] = [];
   try {
-    const { data, error } = await db
+    const { data, error } = await serverDb
       .from('user_actions')
       .select('*')
       .eq('user_id', userId)

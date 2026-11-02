@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runCoordinatorAgent } from '@/lib/agents';
-import { db, auth } from '@/lib/insforge';
+import { serverDb, auth } from '@/lib/insforge';
 import { uploadImage } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     let scanId: string | null = null;
     
     try {
-      const { data: scanRecord, error: dbError } = await db
+      const { data: scanRecord, error: dbError } = await serverDb
         .from('scans')
         .insert([scanData])
         .select()
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     // Log user action
     try {
-      await db.from('user_actions').insert([{
+      await serverDb.from('user_actions').insert([{
         user_id: userId,
         scan_id: scanId,
         action_type: 'scanned',

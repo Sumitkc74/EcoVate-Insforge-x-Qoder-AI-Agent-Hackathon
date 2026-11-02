@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db, auth } from '@/lib/insforge';
+import { serverDb, auth } from '@/lib/insforge';
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert action
-    const { data, error } = await db.from('user_actions').insert([{
+    const { data, error } = await serverDb.from('user_actions').insert([{
       user_id: userId,
       scan_id: scanId,
       action_type: actionType,
