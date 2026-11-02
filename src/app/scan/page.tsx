@@ -48,6 +48,7 @@ export default function ScanPage() {
   const [materialGuessRaw, setMaterialGuessRaw] = useState('');
   const [isMaterialGuessRunning, setIsMaterialGuessRunning] = useState(false);
   const [materialGuessError, setMaterialGuessError] = useState<string | null>(null);
+  const [materialGuessDetail, setMaterialGuessDetail] = useState('');
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,6 +68,7 @@ export default function ScanPage() {
       setMaterialGuess('');
       setMaterialGuessRaw('');
       setMaterialGuessError(null);
+      setMaterialGuessDetail('');
     }
   }, []);
 
@@ -144,6 +146,7 @@ export default function ScanPage() {
             setMaterialGuess('');
             setMaterialGuessRaw('');
             setMaterialGuessError(null);
+      setMaterialGuessDetail('');
             setShowCamera(false);
             // Stop camera stream
             if (streamRef.current) {
@@ -286,6 +289,7 @@ export default function ScanPage() {
     }
     setIsMaterialGuessRunning(true);
     setMaterialGuessError(null);
+      setMaterialGuessDetail('');
     setMaterialGuess('');
     setMaterialGuessRaw('');
     try {
@@ -302,6 +306,11 @@ export default function ScanPage() {
       });
       const result = await response.json();
       if (!response.ok) {
+        if (result.geminiDetail || result.geminiStatus) {
+          setMaterialGuessDetail(
+            `Gemini returned${result.geminiStatus ? ` status ${result.geminiStatus}` : ''}${result.geminiDetail ? `: ${result.geminiDetail}` : ''}`,
+          );
+        }
         throw new Error(result.error || 'Gemini could not guess the material.');
       }
       setMaterialGuess(result.material || '');
@@ -415,6 +424,7 @@ export default function ScanPage() {
     setMaterialGuess('');
     setMaterialGuessRaw('');
     setMaterialGuessError(null);
+      setMaterialGuessDetail('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -575,6 +585,9 @@ export default function ScanPage() {
                 </button>
                 {materialGuessError && (
                   <p className="text-sm text-red-600">{materialGuessError}</p>
+                )}
+                {materialGuessDetail && (
+                  <p className="text-xs text-gray-500">{materialGuessDetail}</p>
                 )}
                 {materialGuess && (
                   <div className="space-y-2">

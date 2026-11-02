@@ -75,7 +75,30 @@ export async function POST(request: Request) {
       );
     }
     if (!response.ok) {
-      return NextResponse.json({ error: 'Gemini could not guess the material. Enter it yourself instead.' }, { status: 502 });
+      // Diagnostic: surface Gemini's own status and error message
+      // (never the API key) so a failed guess can actually be
+      // debugged from the page instead of hiding behind a generic
+      // message. The body is capped to keep the response small.
+      let detail = '';
+      try {
+        const text = await response.text();
+        try {
+          const parsed = JSON.parse(text);
+          detail = parsed?.error?.message || '';
+        } catch {
+          detail = text;
+        }
+      } catch {
+        detail = '';
+      }
+      return NextResponse.json(
+        {
+          error: 'Gemini could not guess the material. Enter it yourself instead.',
+          geminiStatus: response.status,
+          geminiDetail: detail.slice(0, 300),
+        },
+        { status: 502 },
+      );
     }
 
     const json = await response.json();
@@ -93,6 +116,12 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error('Material guess error:', err);
-    return NextResponse.json({ error: 'Gemini could not guess the material. Enter it yourself instead.' }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: 'Gemini could not guess the material. Enter it yourself instead.',
+        geminiDetail: String((err as Error).message || err).slice(0, 300),
+      },
+      { status: 502 },
+    );
   }
 }
