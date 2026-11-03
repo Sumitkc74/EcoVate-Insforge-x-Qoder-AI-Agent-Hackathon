@@ -40,6 +40,8 @@ function VerifyContent() {
     confidence: number;
     feedback: string;
     impactScore: number;
+    saved?: boolean;
+    saveError?: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -147,10 +149,21 @@ function VerifyContent() {
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification Pending</h1>
               <p className="text-gray-600 mb-6">{result.feedback}</p>
+              {result.saved === false && (
+                <p className="text-sm text-red-600 mb-6">
+                  Your project was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before pending projects can save, so please submit again after that fix.
+                </p>
+              )}
               <p className="text-sm text-gray-500 mb-6">
                 Confidence: {Math.round(result.confidence * 100)}% (need 85%+ for automatic approval)
               </p>
             </>
+          )}
+
+          {result.saved === false && result.verified && result.confidence >= 0.85 && (
+            <p className="text-sm text-red-600 mb-6">
+              Your project was verified but was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before pending projects can save, so please submit again after that fix.
+            </p>
           )}
 
           <button

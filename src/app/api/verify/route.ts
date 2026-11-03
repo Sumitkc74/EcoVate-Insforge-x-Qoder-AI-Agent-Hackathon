@@ -136,16 +136,33 @@ export async function POST(request: NextRequest) {
     // Calculate impact score (0 for pending)
     const impactScore = isApproved ? Math.round(10 + (estimatedCo2Saved * 20)) : 0;
 
-    // Always save the verification attempt
+    // Always save the verification attempt — and report the result
+    // honestly. Previously a failed insert was only logged server-side
+    // while the page still claimed "saved as pending", so a pending
+    // project could silently never appear in History. (Known cause:
+    // the imported user_actions CHECK constraint only allows
+    // 'scanned', 'diy_selected' and 'diy_completed', so 'diy_pending'
+    // inserts are rejected until the constraint is widened — see the
+    // SQL note in the verify page. The page now shows this error
+    // instead of claiming success.)
+    let saved = true;
+    let saveError: string | null = null;
     try {
-      await serverDb.from('user_actions').insert([{
+      const { error: insertError } = await serverDb.from('user_actions').insert([{
         user_id: userId,
         scan_id: scanId,
         action_type: actionType,
         impact_score: impactScore,
         image_url: imageUrl,
       }]);
+      if (insertError) {
+        saved = false;
+        saveError = insertError.message;
+        console.error('Failed to save action:', insertError);
+      }
     } catch (dbErr) {
+      saved = false;
+      saveError = (dbErr as Error).message;
       console.error('Failed to save action:', dbErr);
     }
 
@@ -173,6 +190,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      saved,
+      saveError,
       verified: verificationResult.verified,
       confidence: verificationResult.confidence,
       feedback: verificationResult.feedback,
