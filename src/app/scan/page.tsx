@@ -323,6 +323,15 @@ export default function ScanPage() {
       return;
     }
 
+    // Never send a scan with a missing product name or packaging
+    // type: the server would then try the paid AI vision path and
+    // fail with a cryptic "Invalid anon key" instead of telling the
+    // user what to fill in. Stop here with a plain instruction.
+    if (productName.trim() === '' || packagingType === '') {
+      setError('Fill in the product name and packaging type first. AI vision is unavailable on the free plan, so a scan with either field empty cannot run.');
+      return;
+    }
+
     setIsScanning(true);
     setError(null);
 
