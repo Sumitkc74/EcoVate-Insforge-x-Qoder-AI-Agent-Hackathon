@@ -64,6 +64,35 @@ export async function guessMaterialWithGroq(
   return found || null;
 }
 
+// Full packaging read (product name, materials, label text,
+// packaging type) for the Vision Agent. Returns the raw parsed
+// object, or null when Groq is unavailable or the reply is unusable;
+// the caller in free-vision.ts validates and normalizes it.
+export async function analyzePackagingWithGroq(
+  imageDataUrl: string,
+): Promise<Record<string, unknown> | null> {
+  return callGroqVision(
+    `Analyze this product packaging image and extract the following information:
+
+1. Product name (as shown on packaging)
+2. Detected materials (list all materials visible: plastic, glass, paper, metal, cardboard, etc.)
+3. Label text (any recycling symbols, material codes, or environmental claims)
+4. Packaging type (bottle, box, bag, jar, can, wrapper, etc.)
+
+Respond ONLY with a JSON object in this exact format:
+{
+  "product_name": "string",
+  "detected_materials": ["material1", "material2"],
+  "label_text": "string with any text found",
+  "packaging_type": "string",
+  "confidence": number between 0-1
+}
+
+If any information is unclear, make your best estimate and set confidence accordingly.`,
+    imageDataUrl,
+  );
+}
+
 export async function verifyWithGroq(
   imageDataUrl: string,
   packagingType: string,

@@ -323,15 +323,10 @@ export default function ScanPage() {
       return;
     }
 
-    // Never send a scan with a missing product name or packaging
-    // type: the server would then try the paid AI vision path and
-    // fail with a cryptic "Invalid anon key" instead of telling the
-    // user what to fill in. Stop here with a plain instruction.
-    if (productName.trim() === '' || packagingType === '') {
-      setError('Fill in the product name and packaging type first. AI vision is unavailable on the free plan, so a scan with either field empty cannot run.');
-      return;
-    }
-
+    // With free vision wired in (Gemini, then Groq), a scan with an
+    // empty product name or packaging type is no longer blocked here:
+    // the server tries the free vision step first and only fails with
+    // a plain message if both free options fail.
     setIsScanning(true);
     setError(null);
 
@@ -531,7 +526,6 @@ export default function ScanPage() {
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-sm text-red-600">{error}</p>
-                  <p className="text-sm text-red-600 mt-1">AI vision is unavailable on the free plan. Fill in the product name and packaging type below, then tap Analyze Product again — that path needs no AI vision.</p>
                 </div>
               )}
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
