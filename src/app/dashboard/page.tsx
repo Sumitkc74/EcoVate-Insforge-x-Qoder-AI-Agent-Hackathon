@@ -203,7 +203,10 @@ export default function DashboardPage() {
     }
   };
 
-  const handleAddDiy = async (scan: DiyScanLike) => {
+  // refresh=false ("Add DIY"): the scan's stored ideas, the same
+  // three the results page showed. refresh=true ("Choose again"):
+  // the user explicitly asked for different ones.
+  const handleAddDiy = async (scan: DiyScanLike, refresh = false) => {
     if (!user?.id) {
       setDiyError('Please log in again');
       return;
@@ -211,7 +214,7 @@ export default function DashboardPage() {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan.id);
+      await openAddDiy(router, scan.id, refresh);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
@@ -240,7 +243,7 @@ export default function DashboardPage() {
             packagingType: sel.packaging_type,
             estimatedCo2Saved: sel.estimated_co2_saved,
           })),
-          onChooseAgain: () => handleAddDiy(scan),
+          onChooseAgain: () => handleAddDiy(scan, true),
         });
       }
     }

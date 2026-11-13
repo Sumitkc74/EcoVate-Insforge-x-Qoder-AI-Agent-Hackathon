@@ -1,14 +1,17 @@
 /**
- * GET /api/diy-ideas?scanId=...
+ * GET /api/diy-ideas?scanId=...[&refresh=1]
  *
- * DIY ideas for a scan that was saved earlier ("Add DIY" from History
- * or the dashboard). The ideas are generated on the fly and not stored,
- * so they are regenerated here: the packaging type is read from the
- * 'scanned' action the scan route stored it on, then the DIY agent
- * runs on the stored materials. Only scans made before that was
- * stored fall back to reading the stored photo with the free vision
- * path; without a photo, the packaging type falls back to "container"
- * and the DIY agent's built-in ideas are used. Only the scan's owner
+ * DIY ideas for a saved scan ("Add DIY" from History or the
+ * dashboard). The scan's own ideas are shown — the three the results
+ * page showed when the scan ran, stored on the scan row — so the
+ * user sees the same recommendations every time they come back.
+ * Only an explicit refresh (the "Get different ideas" button, or
+ * "Choose again" after a choice was made) runs the DIY agent again
+ * and replaces the stored set. Scans made before the ideas were
+ * stored generate a fresh set once and store it for next time.
+ * The packaging type is read from the 'scanned' action the scan
+ * route stored it on; only older scans fall back to reading the
+ * stored photo with the free vision path. Only the scan's owner
  * can use it.
  */
 
@@ -38,6 +41,10 @@ export async function GET(request: NextRequest) {
     if (!scanId) {
       return NextResponse.json({ error: 'Missing scanId' }, { status: 400 });
     }
+    // refresh=1 means the user explicitly asked for different ideas
+    // ("Get different ideas" / "Choose again"). Anything else shows
+    // the scan's stored set.
+    const refresh = request.nextUrl.searchParams.get('refresh') === '1';
 
     const { data: scan, error: scanError } = await serverDb
       .from('scans')
@@ -86,13 +93,44 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // The scan's own ideas first: the three the results page showed
+    // when the scan ran. A fresh set is generated only on an explicit
+    // refresh, or for scans made before ideas were stored — and then
+    // stored, so the next open shows the same set.
+    const storedIdeas = Array.isArray((scan as { diy_ideas?: unknown }).diy_ideas)
+      ? ((scan as { diy_ideas: unknown[] }).diy_ideas as { title?: string }[])
+          .filter((idea) => idea && typeof idea.title === 'string')
+      : [];
+    if (!refresh && storedIdeas.length > 0) {
+      return NextResponse.json({
+        success: true,
+        scan,
+        packagingType,
+        diyIdeas: storedIdeas,
+        fromStored: true,
+      });
+    }
+
     const { ideas } = await runDIYAgent(packagingType, scan.materials || []);
+
+    // Best-effort store: the column may not exist yet (one-time SQL
+    // pending), in which case this is a no-op and the next open
+    // regenerates again. A failed store never fails the request.
+    try {
+      await serverDb
+        .from('scans')
+        .update({ diy_ideas: ideas })
+        .eq('id', scanId);
+    } catch {
+      // Column missing — ideas still return fine below.
+    }
 
     return NextResponse.json({
       success: true,
       scan,
       packagingType,
       diyIdeas: ideas,
+      fromStored: false,
     });
   } catch (error) {
     return handleRouteError(error, 'DIY ideas API error:');

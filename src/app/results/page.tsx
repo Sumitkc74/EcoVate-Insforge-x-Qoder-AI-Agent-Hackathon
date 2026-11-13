@@ -83,6 +83,31 @@ function ResultsContent() {
     setSelectedDIY(diy);
   };
 
+  // "Get different ideas": the user explicitly asked for a fresh
+  // set, so the AI runs again and the stored set is replaced. The
+  // ideas shown otherwise are the scan's own — the three from when
+  // the scan ran — and "Add DIY" later shows those same three.
+  const [isRefreshingIdeas, setIsRefreshingIdeas] = useState(false);
+  const [refreshIdeasError, setRefreshIdeasError] = useState<string | null>(null);
+  const handleRefreshIdeas = async () => {
+    if (!scanId || scanId.startsWith('temp_')) return;
+    setIsRefreshingIdeas(true);
+    setRefreshIdeasError(null);
+    try {
+      const response = await authedFetch(`/api/diy-ideas?scanId=${encodeURIComponent(scanId)}&refresh=1`);
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Could not load different ideas');
+      }
+      setScanData((prev) => (prev ? { ...prev, diy_ideas: result.diyIdeas || [] } : prev));
+      setSelectedDIY(null);
+    } catch (e) {
+      setRefreshIdeasError((e as Error).message);
+    } finally {
+      setIsRefreshingIdeas(false);
+    }
+  };
+
   // Record the chosen idea (with its title, packaging type and CO2
   // estimate) so it can be resumed later from the dashboard or History.
   // Awaited by the handlers below: /api/verify reads the CO2 number
@@ -378,6 +403,21 @@ function ResultsContent() {
                     </div>
                   </div>
                 ))}
+
+                {!scanId.startsWith('temp_') && (scanData.diy_ideas?.length || 0) > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={handleRefreshIdeas}
+                      disabled={isRefreshingIdeas}
+                      className="w-full text-sm font-medium text-gray-500 hover:text-green-700 py-2 disabled:opacity-50"
+                    >
+                      {isRefreshingIdeas ? 'Loading different ideas…' : 'Get different ideas'}
+                    </button>
+                    {refreshIdeasError && (
+                      <p className="text-sm text-red-600 text-center">{refreshIdeasError}</p>
+                    )}
+                  </div>
+                )}
 
                 {selectedDIY && (
                   <div className="space-y-2 mt-4">

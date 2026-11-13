@@ -242,24 +242,42 @@ export async function POST(request: NextRequest) {
     const profileErrorMsg: string | null = await profilePromise;
     let dbErrorMsg: string | null = null;
 
-    // Save scan to database
-    const scanData = {
+    // Save scan to database. The DIY ideas are stored with the scan,
+    // so "Add DIY" later shows the same three ideas the results page
+    // showed — instead of generating a fresh set every time. The
+    // column needs the one-time SQL (ALTER TABLE public.scans ADD
+    // COLUMN IF NOT EXISTS diy_ideas JSONB); until it exists, the
+    // insert falls back to the columns that do, and Add DIY
+    // regenerates ideas as before.
+    const scanData: Record<string, unknown> = {
       user_id: userId,
       product_name: coordinatorResult.data!.product_name,
       materials: coordinatorResult.data!.detected_materials,
       carbon_footprint: coordinatorResult.data!.carbon_footprint_kg || 0,
       recyclability_score: coordinatorResult.data!.recyclability_score || 0,
       image_url: imageUrl,
+      diy_ideas: coordinatorResult.data!.diy_ideas || [],
     };
 
     let scanId: string | null = null;
-    
+
     try {
-      const { data: scanRecord, error: dbError } = await serverDb
+      let { data: scanRecord, error: dbError } = await serverDb
         .from('scans')
         .insert([scanData])
         .select()
         .single();
+
+      if (dbError && /diy_ideas|42703/.test(
+        `${(dbError as { code?: string }).code || ''} ${(dbError as { message?: string }).message || ''}`,
+      )) {
+        const { diy_ideas: _dropped, ...fallbackData } = scanData;
+        ({ data: scanRecord, error: dbError } = await serverDb
+          .from('scans')
+          .insert([fallbackData])
+          .select()
+          .single());
+      }
 
       if (dbError) {
         dbErrorMsg = 'Scan could not be saved to History.';

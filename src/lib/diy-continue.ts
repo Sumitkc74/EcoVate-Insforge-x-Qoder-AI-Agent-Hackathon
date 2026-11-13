@@ -12,8 +12,9 @@
  * packaging_type / estimated_co2_saved when those columns exist), so
  * the dashboard and History can send the user straight to /verify to
  * upload the completion photo later. "Add DIY" for a scan with no
- * idea yet goes through /api/diy-ideas, which regenerates the ideas
- * for the stored scan and opens the results page on the DIY tab.
+ * idea yet goes through /api/diy-ideas, which shows the scan's
+ * stored ideas (the three from the results page) and opens the
+ * results page on the DIY tab; "Choose again" asks for a fresh set.
  */
 
 import type { DIYIdea, ScanResult } from './insforge';
@@ -87,16 +88,24 @@ export function buildVerifyUrl(args: {
   return `/verify?${params.toString()}`;
 }
 
-// "Add DIY" / "Choose again" for a saved scan: fetch fresh ideas for
-// it and open the results page on the DIY tab. The scan's stored
-// fields come back from the API, so callers only need the scan id.
-// The session token goes in the header — the user id is never in
+// "Add DIY" / "Choose again" for a saved scan: fetch its ideas and
+// open the results page on the DIY tab. The scan's stored fields
+// come back from the API, so callers only need the scan id. The
+// session token goes in the header — the user id is never in
 // the URL anymore.
+//
+// refresh=false ("Add DIY"): the scan's stored ideas — the same
+// three the results page showed when the scan ran. refresh=true
+// ("Choose again" / "Get different ideas"): the user explicitly
+// asked for different ones, so the AI runs again and the stored
+// set is replaced.
 export async function openAddDiy(
   router: { push: (url: string) => void },
   scanId: string,
+  refresh = false,
 ): Promise<void> {
-  const response = await authedFetch(`/api/diy-ideas?scanId=${encodeURIComponent(scanId)}`);
+  const query = `/api/diy-ideas?scanId=${encodeURIComponent(scanId)}${refresh ? '&refresh=1' : ''}`;
+  const response = await authedFetch(query);
   const result = await response.json();
   if (!response.ok || !result.success) {
     throw new Error(result.error || 'Could not load DIY ideas for this scan');

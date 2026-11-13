@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guessMaterialWithGroq } from '@/lib/groq-vision';
-import { requireUser, unauthorizedResponse } from '@/lib/server-auth';
+import { serverDb } from '@/lib/insforge';
+import { requireUser, overDailyCap, unauthorizedResponse } from '@/lib/server-auth';
 
 // Two free attempts must fit inside the free-plan function
 // limit of 60s, so each gets 25s: Gemini first, then Groq.
@@ -29,10 +30,29 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   // Every guess burns AI quota, so anonymous calls are not allowed:
-  // the caller must have a valid session. (No service key needed
-  // here — this route never touches the database.)
+  // the caller must have a valid session.
   const user = await requireUser(request);
   if (!user) return unauthorizedResponse();
+  const userId = user.id;
+
+  // Daily cap on guesses: 30/day signed in, 10/day for guests.
+  // The scan page calls this on every photo whose material is
+  // unknown, so without a cap a guest could burn the Gemini/Groq
+  // quota with repeated guesses and never scan once. Guests get
+  // more guesses than scans (10 vs 2) because retaking a photo or
+  // comparing items is normal use — the cap bounds abuse, not that.
+  const guessCap = user.isAnonymous ? 10 : 30;
+  if (await overDailyCap(userId, 'user_actions', ['material_guess'], guessCap)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: user.isAnonymous
+          ? 'Daily material-guess limit reached (10 for guest accounts). Sign in with Google for 30 a day.'
+          : 'Daily material-guess limit reached (30). Try again tomorrow.',
+      },
+      { status: 429 },
+    );
+  }
 
   let body: { image?: string };
   try {
@@ -46,6 +66,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No image supplied' }, { status: 400 });
   }
   const [, mimeType, base64] = match;
+
+  // Log the attempt so the cap above can count it. The row carries
+  // no points and no scan, and History filters by action type, so
+  // it never shows up as a project. The 'material_guess' type needs
+  // the one-time SQL widening the user_actions check constraint —
+  // until that is run the insert fails and is logged here, and the
+  // guess still works (the cap just cannot be enforced yet).
+  const { error: logError } = await serverDb.from('user_actions').insert([{
+    user_id: userId,
+    action_type: 'material_guess',
+    impact_score: 0,
+  }]);
+  if (logError) {
+    console.error('Material-guess log error (cap unenforced until the check constraint allows material_guess):', logError);
+  }
 
   // No Gemini key: Groq alone is still a valid attempt.
   const apiKey = process.env.GEMINI_API_KEY;

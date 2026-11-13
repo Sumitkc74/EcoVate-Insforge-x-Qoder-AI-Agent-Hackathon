@@ -1,4 +1,15 @@
 /**
+ * GET /api/history?limit=20&scanOffset=0&actionOffset=0
+ *
+ * The signed-in user's History, paged: the History page used to
+ * read through /api/dashboard, which only returns the 10 most
+ * recent scans and 20 most recent actions, so older items were
+ * unreachable. Scans and actions page independently (the page
+ * loads more of whichever list is being viewed). Totals and the
+ * project counts are exact — they come from the full actions list
+ * the score sum already needs — so the tab labels stay truthful
+ * while only one page of rows is in hand.
+ *
  * DELETE /api/history
  *
  * Delete the signed-in user's own History items:
@@ -10,9 +21,10 @@
  * Ownership is enforced server-side: rows are only deleted when
  * their user_id matches the authenticated user. Deleting a scan
  * also deletes its linked actions for that scan, so no orphan
- * project rows are left behind. Points earned by deleted approved
- * projects (or by a scan's linked actions) are taken back off the
- * user's sustainability_score.
+ * project rows are left behind. Scores are derived from the
+ * actions themselves, so deleting an action takes its points off
+ * every display automatically — nothing writes the stale
+ * users.sustainability_score column anymore.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,27 +36,97 @@ import {
   handleRouteError,
 } from '@/lib/server-auth';
 
-async function adjustUserScore(userId: string, pointsToRemove: number) {
-  if (pointsToRemove <= 0) return;
+// The tab counts the page shows, computed from the full actions
+// list with the same rules as the page's own getScanDiyState: a
+// scan is completed if any diy_completed exists, else pending if
+// any diy_pending, else selected if a diy_selected exists. (Failed
+// and completed are counted per action row, as the page does.)
+function projectCounts(actions: { scan_id: string | null; action_type: string }[]) {
+  const byScan = new Map<string, Set<string>>();
+  for (const a of actions) {
+    if (!a.scan_id) continue;
+    const set = byScan.get(a.scan_id) || new Set<string>();
+    set.add(a.action_type);
+    byScan.set(a.scan_id, set);
+  }
+  const stateOf = (scanId: string | null) => {
+    if (!scanId) return 'none';
+    const types = byScan.get(scanId) || new Set<string>();
+    if (types.has('diy_completed')) return 'completed';
+    if (types.has('diy_pending')) return 'pending';
+    if (types.has('diy_selected')) return 'selected';
+    return 'none';
+  };
+  const selected = actions.filter(
+    (a) => a.action_type === 'diy_selected' && stateOf(a.scan_id) === 'selected',
+  ).length;
+  const pending = actions.filter(
+    (a) => a.action_type === 'diy_pending' && stateOf(a.scan_id) === 'pending',
+  ).length;
+  const failed = actions.filter((a) => a.action_type === 'diy_failed').length;
+  const completed = actions.filter((a) => a.action_type === 'diy_completed').length;
+  return { selected, pending, failed, completed };
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const { data: userData } = await serverDb
-      .from('users')
-      .select('sustainability_score')
-      .eq('id', userId)
-      .single();
-    if (userData) {
-      await serverDb
-        .from('users')
-        .update({
-          sustainability_score: Math.max(
-            0,
-            (userData.sustainability_score || 0) - pointsToRemove
-          ),
-        })
-        .eq('id', userId);
-    }
-  } catch (err) {
-    console.error('Failed to adjust user score after delete:', err);
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    const userId = user.id;
+
+    const params = request.nextUrl.searchParams;
+    const limit = Math.min(Math.max(parseInt(params.get('limit') || '20', 10) || 20, 1), 50);
+    const scanOffset = Math.max(parseInt(params.get('scanOffset') || '0', 10) || 0, 0);
+    const actionOffset = Math.max(parseInt(params.get('actionOffset') || '0', 10) || 0, 0);
+
+    // The two pages and the score sum are independent, so they run
+    // together. The full actions list is needed for the derived
+    // score and the exact tab counts (same as the dashboard's sum).
+    const [scansRes, actionsRes, scoreRes] = await Promise.all([
+      serverDb
+        .from('scans')
+        .select('*', { count: 'exact' })
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .range(scanOffset, scanOffset + limit - 1),
+      serverDb
+        .from('user_actions')
+        .select('*', { count: 'exact' })
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .range(actionOffset, actionOffset + limit - 1),
+      serverDb
+        .from('user_actions')
+        .select('scan_id, action_type, impact_score')
+        .eq('user_id', userId),
+    ]);
+    if (scansRes.error) throw scansRes.error;
+    if (actionsRes.error) throw actionsRes.error;
+
+    const allActions = (scoreRes.data || []) as {
+      scan_id: string | null;
+      action_type: string;
+      impact_score: number;
+    }[];
+    const counts = projectCounts(allActions);
+    const totalScans = typeof scansRes.count === 'number' ? scansRes.count : (scansRes.data || []).length;
+    const totalActions = typeof actionsRes.count === 'number' ? actionsRes.count : (actionsRes.data || []).length;
+
+    return NextResponse.json({
+      success: true,
+      scans: scansRes.data || [],
+      actions: actionsRes.data || [],
+      totalScans,
+      totalActions,
+      totalProjects: counts.selected + counts.failed + counts.completed,
+      totalPending: counts.pending,
+      totalImpact: allActions.reduce((sum, a) => sum + (a.impact_score || 0), 0),
+      hasMoreScans: scanOffset + limit < totalScans,
+      hasMoreActions: actionOffset + limit < totalActions,
+    });
+  } catch (error) {
+    return handleRouteError(error, 'History API error:');
   }
 }
 
@@ -91,14 +173,12 @@ export async function DELETE(request: NextRequest) {
           await serverDb.from('user_actions').delete().eq('user_id', userId).in('scan_id', scanIds);
           await serverDb.from('scans').delete().eq('user_id', userId);
         }
-        await adjustUserScore(userId, deletedImpact);
         return NextResponse.json({ success: true, deletedCount: scanIds.length, deletedImpact });
       }
 
       // type === 'all-projects': delete every action, keep the scans.
       const deletedImpact = actions.reduce((sum, a) => sum + (a.impact_score || 0), 0);
       await serverDb.from('user_actions').delete().eq('user_id', userId);
-      await adjustUserScore(userId, deletedImpact);
       return NextResponse.json({ success: true, deletedCount: actions.length, deletedImpact });
     }
 
@@ -138,7 +218,6 @@ export async function DELETE(request: NextRequest) {
         .eq('user_id', userId);
       if (deleteError) throw deleteError;
 
-      await adjustUserScore(userId, deletedImpact);
       return NextResponse.json({ success: true, deletedImpact });
     }
 
@@ -161,7 +240,6 @@ export async function DELETE(request: NextRequest) {
       .eq('user_id', userId);
     if (deleteError) throw deleteError;
 
-    await adjustUserScore(userId, deletedImpact);
     return NextResponse.json({ success: true, deletedImpact });
   } catch (error) {
     return handleRouteError(error, 'History delete API error:');

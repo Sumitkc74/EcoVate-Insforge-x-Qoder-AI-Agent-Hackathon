@@ -47,6 +47,17 @@ export default function HistoryPage() {
   const router = useRouter();
   const [data, setData] = useState<HistoryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Paged history: the page used to read through /api/dashboard (10
+  // scans / 20 actions), so older items were unreachable. Scans and
+  // actions page independently — "Load more" on a tab loads the next
+  // page of the list that tab shows.
+  const PAGE_SIZE = 20;
+  const [scanOffset, setScanOffset] = useState(0);
+  const [actionOffset, setActionOffset] = useState(0);
+  const [hasMoreScans, setHasMoreScans] = useState(false);
+  const [hasMoreActions, setHasMoreActions] = useState(false);
+  const [totals, setTotals] = useState({ totalScans: 0, totalProjects: 0, totalPending: 0 });
+  const [isLoadingMore, setIsLoadingMore] = useState<'scans' | 'actions' | null>(null);
   const [activeTab, setActiveTab] = useState<'scans' | 'projects' | 'pending'>('projects');
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'scan' | 'project'; id: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -61,6 +72,13 @@ export default function HistoryPage() {
     fetchHistory();
   }, []);
 
+  const loadHistoryPage = async (sOff: number, aOff: number) => {
+    const response = await authedFetch(`/api/history?limit=${PAGE_SIZE}&scanOffset=${sOff}&actionOffset=${aOff}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not load history');
+    return result;
+  };
+
   const fetchHistory = async () => {
     try {
       const identity = await getCurrentIdentity();
@@ -68,21 +86,55 @@ export default function HistoryPage() {
         router.push('/login');
         return;
       }
-      const response = await authedFetch('/api/dashboard', {
-        method: 'POST',
-      });
-      
-      const result = await response.json();
-      console.log('Dashboard data:', result);
+      const result = await loadHistoryPage(0, 0);
       setData({
-        scans: result.recentScans || [],
-        actions: result.recentActions || [],
-        totalImpact: result.stats?.totalImpact || 0,
+        scans: result.scans || [],
+        actions: result.actions || [],
+        totalImpact: result.totalImpact || 0,
+      });
+      setScanOffset(0);
+      setActionOffset(0);
+      setHasMoreScans(Boolean(result.hasMoreScans));
+      setHasMoreActions(Boolean(result.hasMoreActions));
+      setTotals({
+        totalScans: result.totalScans || 0,
+        totalProjects: result.totalProjects || 0,
+        totalPending: result.totalPending || 0,
       });
     } catch (e) {
       console.error('Failed to fetch history:', e);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadMoreScans = async () => {
+    const next = scanOffset + PAGE_SIZE;
+    setIsLoadingMore('scans');
+    try {
+      const result = await loadHistoryPage(next, 0);
+      setData((prev) => (prev ? { ...prev, scans: [...prev.scans, ...(result.scans || [])] } : prev));
+      setScanOffset(next);
+      setHasMoreScans(Boolean(result.hasMoreScans));
+    } catch (e) {
+      console.error('Failed to load more scans:', e);
+    } finally {
+      setIsLoadingMore(null);
+    }
+  };
+
+  const loadMoreActions = async () => {
+    const next = actionOffset + PAGE_SIZE;
+    setIsLoadingMore('actions');
+    try {
+      const result = await loadHistoryPage(0, next);
+      setData((prev) => (prev ? { ...prev, actions: [...prev.actions, ...(result.actions || [])] } : prev));
+      setActionOffset(next);
+      setHasMoreActions(Boolean(result.hasMoreActions));
+    } catch (e) {
+      console.error('Failed to load more actions:', e);
+    } finally {
+      setIsLoadingMore(null);
     }
   };
 
@@ -113,11 +165,14 @@ export default function HistoryPage() {
     }
   };
 
-  const handleAddDiy = async (scan: Scan) => {
+  // refresh=false ("Add DIY"): the scan's stored ideas, the same
+  // three the results page showed. refresh=true ("Choose again"):
+  // the user explicitly asked for different ones.
+  const handleAddDiy = async (scan: Scan, refresh = false) => {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan.id);
+      await openAddDiy(router, scan.id, refresh);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
@@ -231,7 +286,7 @@ export default function HistoryPage() {
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Projects ({allProjects.length})
+            Projects ({totals.totalProjects})
           </button>
           <button
             onClick={() => setActiveTab('pending')}
@@ -241,7 +296,7 @@ export default function HistoryPage() {
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Pending ({pendingProjects.length})
+            Pending ({totals.totalPending})
           </button>
           <button
             onClick={() => setActiveTab('scans')}
@@ -251,7 +306,7 @@ export default function HistoryPage() {
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Scans ({data?.scans.length || 0})
+            Scans ({totals.totalScans})
           </button>
         </div>
       </div>
@@ -437,7 +492,7 @@ export default function HistoryPage() {
                         )}
                         {diy.status !== 'none' && (
                           <button
-                            onClick={() => handleAddDiy(scan)}
+                            onClick={() => handleAddDiy(scan, true)}
                             disabled={addDiyId === scan.id}
                             className="text-xs font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
                           >
@@ -480,6 +535,15 @@ export default function HistoryPage() {
                 </div>
                 );
               })
+            )}
+            {hasMoreScans && (
+              <button
+                onClick={loadMoreScans}
+                disabled={isLoadingMore === 'scans'}
+                className="w-full py-3 text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+              >
+                {isLoadingMore === 'scans' ? 'Loading…' : 'Load more scans'}
+              </button>
             )}
           </div>
         )}
@@ -644,7 +708,7 @@ export default function HistoryPage() {
                         )}
                         {linkedScan && (
                           <button
-                            onClick={() => handleAddDiy(linkedScan)}
+                            onClick={() => handleAddDiy(linkedScan, true)}
                             disabled={addDiyId === linkedScan.id}
                             className="font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
                           >
@@ -681,6 +745,15 @@ export default function HistoryPage() {
                   </div>
                 );
               })
+            )}
+            {hasMoreActions && (
+              <button
+                onClick={loadMoreActions}
+                disabled={isLoadingMore === 'actions'}
+                className="w-full py-3 text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+              >
+                {isLoadingMore === 'actions' ? 'Loading…' : 'Load more'}
+              </button>
             )}
           </div>
         )}
@@ -733,7 +806,7 @@ export default function HistoryPage() {
                       </button>
                       {linkedScan && (
                         <button
-                          onClick={() => handleAddDiy(linkedScan)}
+                          onClick={() => handleAddDiy(linkedScan, true)}
                           disabled={addDiyId === linkedScan.id}
                           className="font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
                         >
@@ -768,6 +841,15 @@ export default function HistoryPage() {
                   </div>
                 );
               })
+            )}
+            {hasMoreActions && (
+              <button
+                onClick={loadMoreActions}
+                disabled={isLoadingMore === 'actions'}
+                className="w-full py-3 text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+              >
+                {isLoadingMore === 'actions' ? 'Loading…' : 'Load more'}
+              </button>
             )}
           </div>
         )}

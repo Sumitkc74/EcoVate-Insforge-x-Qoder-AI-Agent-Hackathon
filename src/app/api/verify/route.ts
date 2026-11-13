@@ -126,6 +126,15 @@ export async function POST(request: NextRequest) {
     const bytes = await imageFile.arrayBuffer();
     const base64Image = `data:${imageFile.type};base64,${Buffer.from(bytes).toString('base64')}`;
 
+    // Upload the photo in parallel with the AI calls below (same as
+    // the scan route): the upload needs only the file, not the AI
+    // result, so it used to sit on the verification's critical path
+    // for no reason. It is awaited after the AI result is known,
+    // before the action insert that stores its URL. A failed upload
+    // is non-fatal — the verification still saves, just without a
+    // photo — as before.
+    const uploadPromise = uploadImage(imageFile, `verifications/${userId}`);
+
     // Try Gemini (free tier, server-side key) to verify the photo.
     // If Gemini is unavailable, the submission still succeeds as
     // pending below — it never errors on a verification AI failure.
@@ -181,12 +190,9 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    // Upload verification image
-    const { url: imageUrl, error: uploadError } = await uploadImage(
-      imageFile, 
-      `verifications/${userId}`
-    );
-    
+    // The upload started before the AI calls; collect it now.
+    const { url: imageUrl, error: uploadError } = await uploadPromise;
+
     if (uploadError) {
       console.error('Image upload error:', uploadError);
     }
@@ -250,27 +256,10 @@ export async function POST(request: NextRequest) {
       console.error('Failed to save action:', dbErr);
     }
 
-    // If approved, update user's cumulative score
-    if (isApproved && impactScore > 0) {
-      try {
-        const { data: userData } = await serverDb
-          .from('users')
-          .select('sustainability_score')
-          .eq('id', userId)
-          .single();
-
-        if (userData) {
-          await serverDb
-            .from('users')
-            .update({ 
-              sustainability_score: (userData.sustainability_score || 0) + impactScore 
-            })
-            .eq('id', userId);
-        }
-      } catch (scoreErr) {
-        console.error('Failed to update score:', scoreErr);
-      }
-    }
+    // No score column is updated here: scores are derived from the
+    // action just saved, so the points appear on every display as
+    // soon as the row exists. The old code also wrote
+    // users.sustainability_score, a column nothing reads anymore.
 
     return NextResponse.json({
       success: true,
