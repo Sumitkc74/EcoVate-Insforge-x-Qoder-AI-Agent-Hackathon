@@ -93,6 +93,29 @@ If any information is unclear, make your best estimate and set confidence accord
   );
 }
 
+// Recheck for the scan page: do the user-entered details actually
+// match the photo? Returns null when Groq is unavailable or the reply
+// is unusable; the caller in detail-check.ts treats that as "no
+// verdict" and lets the scan proceed.
+export async function checkDetailsWithGroq(
+  imageDataUrl: string,
+  productName: string,
+  packagingType: string,
+  materials: readonly string[],
+): Promise<{ matches: boolean; confidence: number; observed: string; reason: string } | null> {
+  const parsed = await callGroqVision(
+    `You are checking whether user-entered details match a product packaging photo. The user says this photo shows: product name "${productName}", packaging type "${packagingType}", materials "${materials.join(', ') || 'not given'}". Look at the photo. Does it actually show that product and packaging type? Be fair: different brands, angles, and lighting still count as a match if the product and packaging type are right. Reply with a JSON object only: {"matches": true or false, "confidence": number between 0 and 1, "observed": "briefly, what the photo actually shows", "reason": "brief explanation"}.`,
+    imageDataUrl,
+  );
+  if (!parsed || typeof parsed.matches !== 'boolean') return null;
+  return {
+    matches: parsed.matches,
+    confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
+    observed: typeof parsed.observed === 'string' ? parsed.observed : '',
+    reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+  };
+}
+
 export async function verifyWithGroq(
   imageDataUrl: string,
   packagingType: string,

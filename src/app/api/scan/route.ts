@@ -9,11 +9,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runCoordinatorAgent } from '@/lib/agents';
 import { serverDb, auth } from '@/lib/insforge';
 import { uploadImage } from '@/lib/storage';
+import { checkDetailsAgainstPhoto, DETAIL_MISMATCH_CONFIDENCE } from '@/lib/detail-check';
 
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck2-svcstorage';
+export const SCAN_API_VERSION = 'imgcheck3-detailcheck';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -58,6 +59,36 @@ export async function POST(request: NextRequest) {
       detected_materials: manualMaterials,
       label_text: typeof body.label_text === 'string' ? body.label_text : undefined,
     };
+
+    // Recheck hand-entered details against the photo. The coordinator
+    // skips vision entirely when a product name + packaging type are
+    // supplied, so without this anything random could be entered and
+    // saved as a scan. A confident mismatch (85%+, the same bar as
+    // verification) stops the scan and tells the user what the AI
+    // actually sees, so they can correct the details or retake the
+    // photo from a different angle. An unsure verdict, or vision
+    // being unavailable, never blocks the scan.
+    let detailWarning: string | null = null;
+    if (manual.product_name && manual.packaging_type) {
+      const check = await checkDetailsAgainstPhoto(base64Image, {
+        productName: manual.product_name,
+        packagingType: manual.packaging_type,
+        materials: manualMaterials,
+      });
+      if (check && !check.matches && check.confidence >= DETAIL_MISMATCH_CONFIDENCE) {
+        return NextResponse.json({
+          success: false,
+          mismatch: true,
+          error: `This photo doesn't look like a ${manual.packaging_type} (${manual.product_name}). The AI sees: ${check.observed || 'something else'}. Correct the details below, or take another photo from a different angle.`,
+          observed: check.observed,
+          reason: check.reason,
+          confidence: check.confidence,
+        }, { status: 422 });
+      }
+      if (check && !check.matches) {
+        detailWarning = `The AI wasn't sure your details match the photo (it sees: ${check.observed || 'something else'}). Double-check the product name and packaging type.`;
+      }
+    }
 
     // Run Coordinator Agent (Vision → Research → DIY, or manual → Research → DIY)
     console.log('Starting Coordinator Agent...');
@@ -205,6 +236,7 @@ export async function POST(request: NextRequest) {
       profileError: profileErrorMsg,
       imageUrl,
       imageUploadError,
+      detailWarning,
     });
 
   } catch (error) {

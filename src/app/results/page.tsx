@@ -30,6 +30,7 @@ function ResultsContent() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiVersion, setApiVersion] = useState<string>('');
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [detailWarning, setDetailWarning] = useState<string | null>(null);
 
   useEffect(() => {
     const dataParam = searchParams.get('data');
@@ -48,6 +49,7 @@ function ResultsContent() {
     setSaveError(searchParams.get('saveError'));
     setApiVersion(searchParams.get('version') || '');
     setImageUploadError(searchParams.get('imageUploadError'));
+    setDetailWarning(searchParams.get('detailWarning'));
   }, [searchParams]);
 
   const handleDIYSelect = (diy: DIYIdea) => {
@@ -127,6 +129,12 @@ function ResultsContent() {
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
             <p className="text-sm font-semibold text-amber-700">Your photo could not be uploaded, so it won&apos;t show in History.</p>
             <p className="text-sm text-amber-600 mt-1">{imageUploadError}</p>
+          </div>
+        )}
+        {detailWarning && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+            <p className="text-sm font-semibold text-amber-700">Double-check the details for this scan.</p>
+            <p className="text-sm text-amber-600 mt-1">{detailWarning}</p>
           </div>
         )}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">

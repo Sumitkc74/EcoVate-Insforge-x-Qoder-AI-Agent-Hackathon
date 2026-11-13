@@ -20,6 +20,14 @@ export default function ScanPage() {
   const [showCamera, setShowCamera] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Detail mismatch: set when the AI recheck is confident the
+  // hand-entered details don't match the photo. The user can then
+  // correct the details below or retake the photo.
+  const [detailMismatch, setDetailMismatch] = useState<{
+    message: string;
+    observed: string;
+    reason: string;
+  } | null>(null);
   // Manual details: the free-plan path. When product name + packaging type
   // are both filled in, the scan skips AI vision entirely.
   const [productName, setProductName] = useState('');
@@ -329,6 +337,7 @@ export default function ScanPage() {
     // a plain message if both free options fail.
     setIsScanning(true);
     setError(null);
+    setDetailMismatch(null);
 
     try {
       // Get current user for authentication
@@ -380,6 +389,18 @@ export default function ScanPage() {
       const result = await response.json();
 
       if (!response.ok) {
+        // Confident detail mismatch: stay on the photo with the
+        // details form, and show what the AI actually sees so the
+        // user can correct the details or retake the photo.
+        if (result.mismatch) {
+          setDetailMismatch({
+            message: result.error || 'These details don\'t seem to match the photo.',
+            observed: result.observed || '',
+            reason: result.reason || '',
+          });
+          setIsScanning(false);
+          return;
+        }
         throw new Error(result.error || (result.errors ? result.errors.join('; ') : 'Scan failed'));
       }
 
@@ -389,6 +410,7 @@ export default function ScanPage() {
       // "saved" impression. Also pass the photo-upload failure
       // through, so the results page can warn that the photo will
       // not show in History instead of silently showing a placeholder.
+      // And pass a low-confidence detail warning through the same way.
       const queryParams = new URLSearchParams({
         scanId: result.scanId || '',
         data: JSON.stringify(result.data),
@@ -399,6 +421,9 @@ export default function ScanPage() {
         } : {}),
         ...(result.imageUploadError ? {
           imageUploadError: result.imageUploadError,
+        } : {}),
+        ...(result.detailWarning ? {
+          detailWarning: result.detailWarning,
         } : {}),
       });
       
@@ -414,6 +439,7 @@ export default function ScanPage() {
     setPreviewImage(null);
     setSelectedFile(null);
     setError(null);
+    setDetailMismatch(null);
     setProductName('');
     setPackagingType('');
     setMaterialsText('');
@@ -533,6 +559,29 @@ export default function ScanPage() {
                   <p className="text-sm text-red-600">{error}</p>
                 </div>
               )}
+              {detailMismatch && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-semibold text-amber-800">These details don&apos;t seem to match the photo.</p>
+                  <p className="text-sm text-amber-700 mt-1">{detailMismatch.message}</p>
+                  {detailMismatch.reason && (
+                    <p className="text-xs text-amber-600 mt-1">{detailMismatch.reason}</p>
+                  )}
+                  <div className="flex space-x-2 mt-3">
+                    <button
+                      onClick={() => setDetailMismatch(null)}
+                      className="flex-1 bg-white border border-amber-300 text-amber-800 text-sm font-medium py-2 px-3 rounded-lg"
+                    >
+                      Edit details
+                    </button>
+                    <button
+                      onClick={handleReset}
+                      className="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium py-2 px-3 rounded-lg"
+                    >
+                      Retake photo
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
                 <p className="text-sm font-semibold text-gray-900">Photo details</p>
                 {isAutoRunning && (
@@ -567,13 +616,13 @@ export default function ScanPage() {
                 <input
                   type="text"
                   value={productName}
-                  onChange={(e) => { manualEditedRef.current.add('product'); setProductName(e.target.value); }}
+                  onChange={(e) => { manualEditedRef.current.add('product'); setProductName(e.target.value); setDetailMismatch(null); }}
                   placeholder="Product name, e.g. Water bottle"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
                 />
                 <select
                   value={packagingType}
-                  onChange={(e) => { manualEditedRef.current.add('packaging'); setPackagingType(e.target.value); }}
+                  onChange={(e) => { manualEditedRef.current.add('packaging'); setPackagingType(e.target.value); setDetailMismatch(null); }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
                 >
                   <option value="">Packaging type</option>
@@ -589,7 +638,7 @@ export default function ScanPage() {
                 <input
                   type="text"
                   value={materialsText}
-                  onChange={(e) => { manualEditedRef.current.add('materials'); setMaterialsText(e.target.value); }}
+                  onChange={(e) => { manualEditedRef.current.add('materials'); setMaterialsText(e.target.value); setDetailMismatch(null); }}
                   placeholder="Materials, comma separated, e.g. plastic, paper"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
                 />
