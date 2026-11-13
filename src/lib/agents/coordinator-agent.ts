@@ -9,6 +9,7 @@
 import { runVisionAgent } from './vision-agent';
 import { runResearchAgent } from './research-agent';
 import { runDIYAgent } from './diy-agent';
+import { mergeVisionWithHints } from '../vision-merge';
 import type { ScanResult } from '../insforge';
 
 export interface CoordinatorResult {
@@ -65,18 +66,48 @@ export async function runCoordinatorAgent(
       const { result: visionResult, error: visionError } = await runVisionAgent(imageBase64);
 
       if (visionError || !visionResult) {
-        errors.push(`Vision Agent failed: ${visionError?.message || 'Unknown error'}`);
-        return {
-          success: false,
-          errors,
-          executionTimeMs: Date.now() - startTime,
-        };
+        // Vision is down, but the scan does not have to fail: the
+        // on-device results (label text, detected shape, material
+        // guess) the caller sent as hints can still build a usable
+        // scan. Only fail outright when there are no hints at all.
+        const hasHints =
+          manualProduct ||
+          manualPackaging ||
+          manualMaterials.length > 0 ||
+          manual?.label_text?.trim();
+        if (!hasHints) {
+          errors.push(`Vision Agent failed: ${visionError?.message || 'Unknown error'}`);
+          return {
+            success: false,
+            errors,
+            executionTimeMs: Date.now() - startTime,
+          };
+        }
+        errors.push(
+          `Vision Agent failed (${visionError?.message || 'Unknown error'}), using on-device results instead.`,
+        );
+        partialData.product_name = manualProduct || 'Unknown';
+        partialData.packaging_type = manualPackaging || 'unknown';
+        partialData.detected_materials =
+          manualMaterials.length > 0 ? manualMaterials : ['mixed plastic'];
+        partialData.label_text = manual?.label_text?.trim()
+          ? manual.label_text.trim()
+          : 'Read on-device (AI vision unavailable)';
+      } else {
+        // Vision stays the authority when it is specific; the
+        // on-device results only fill in where its answer is vague
+        // ("Unknown", just "plastic").
+        const merged = mergeVisionWithHints(visionResult, {
+          product_name: manualProduct,
+          packaging_type: manualPackaging,
+          detected_materials: manualMaterials,
+          label_text: manual?.label_text,
+        });
+        partialData.product_name = merged.product_name;
+        partialData.detected_materials = merged.detected_materials;
+        partialData.label_text = merged.label_text;
+        partialData.packaging_type = merged.packaging_type;
       }
-
-      partialData.product_name = visionResult.product_name;
-      partialData.detected_materials = visionResult.detected_materials;
-      partialData.label_text = visionResult.label_text;
-      partialData.packaging_type = visionResult.packaging_type;
     }
 
     // Step 2 & 3: Run Research and DIY agents in PARALLEL for speed

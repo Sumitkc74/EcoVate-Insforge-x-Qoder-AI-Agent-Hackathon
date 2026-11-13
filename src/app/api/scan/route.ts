@@ -14,7 +14,7 @@ import { checkDetailsAgainstPhoto, DETAIL_MISMATCH_CONFIDENCE } from '@/lib/deta
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck3-detailcheck';
+export const SCAN_API_VERSION = 'imgcheck4-visionmerge';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -93,6 +93,15 @@ export async function POST(request: NextRequest) {
     // Run Coordinator Agent (Vision → Research → DIY, or manual → Research → DIY)
     console.log('Starting Coordinator Agent...');
     const coordinatorResult = await runCoordinatorAgent(base64Image, manual);
+
+    // Honest degradation note: when vision was down and the scan was
+    // built from the on-device results instead, say so on the results
+    // page rather than presenting it as a full AI read.
+    const visionFallback = coordinatorResult.errors.some((e) =>
+      e.includes('using on-device results'),
+    )
+      ? 'AI vision was unavailable for this scan, so it was built from the on-device reading instead. Double-check the details.'
+      : null;
 
     if (!coordinatorResult.success && !coordinatorResult.data) {
       return NextResponse.json({
@@ -237,6 +246,7 @@ export async function POST(request: NextRequest) {
       imageUrl,
       imageUploadError,
       detailWarning,
+      visionFallback,
     });
 
   } catch (error) {

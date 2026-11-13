@@ -10,7 +10,7 @@
 
 const GROQ_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b';
 
-async function callGroqVision(prompt: string, imageDataUrl: string): Promise<Record<string, unknown> | null> {
+async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 25000): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   try {
@@ -20,7 +20,7 @@ async function callGroqVision(prompt: string, imageDataUrl: string): Promise<Rec
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: GROQ_MODEL,
         messages: [
@@ -70,12 +70,13 @@ export async function guessMaterialWithGroq(
 // the caller in free-vision.ts validates and normalizes it.
 export async function analyzePackagingWithGroq(
   imageDataUrl: string,
+  timeoutMs = 25000,
 ): Promise<Record<string, unknown> | null> {
   return callGroqVision(
     `Analyze this product packaging image and extract the following information:
 
-1. Product name (as shown on packaging)
-2. Detected materials (list all materials visible: plastic, glass, paper, metal, cardboard, etc.)
+1. Product name: the exact brand and product name as printed on the packaging. If it cannot be read, return "Unknown" rather than guessing.
+2. Detected materials: name the specific material when visible (PET plastic, HDPE plastic, glass, cardboard, paper, metal, etc.), not just "plastic".
 3. Label text (any recycling symbols, material codes, or environmental claims)
 4. Packaging type (bottle, box, bag, jar, can, wrapper, etc.)
 
@@ -88,8 +89,9 @@ Respond ONLY with a JSON object in this exact format:
   "confidence": number between 0-1
 }
 
-If any information is unclear, make your best estimate and set confidence accordingly.`,
+Set confidence to reflect your least certain field. If any information is unclear, make your best estimate and set confidence accordingly.`,
     imageDataUrl,
+    timeoutMs,
   );
 }
 

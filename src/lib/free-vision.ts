@@ -5,8 +5,10 @@
  * (openai/gpt-4o-mini), which is paid-gated on the free plan and
  * failed with "Invalid anon key". This module tries the two free
  * options the app already uses, in the same order as the
- * material-guess route: Gemini first, Groq second, 25s each so both
- * attempts fit inside the scan route's 60s function limit.
+ * material-guess route: Gemini first, Groq second. Groq is only asked
+ * when Gemini failed or its read was vague/unsure, and then on a
+ * shorter 15s timeout, so both attempts still fit inside the scan
+ * route's 60s function limit.
  *
  * Either model is asked for the same JSON the old Vision Agent
  * asked for: product name, materials, label text, packaging type,
@@ -16,6 +18,7 @@
  */
 
 import { analyzePackagingWithGroq } from './groq-vision';
+import { mergeVisionWithHints, isVagueVision } from './vision-merge';
 
 export interface FreeVisionResult {
   product_name: string;
@@ -27,10 +30,15 @@ export interface FreeVisionResult {
 
 const GEMINI_MODEL = 'gemini-3.8-flash';
 
+// Shorter than the full first attempt (25s): the second opinion only
+// runs when the first read was weak, and both attempts still have to
+// fit inside the scan route's 60s function limit.
+const SECOND_OPINION_TIMEOUT_MS = 15000;
+
 const VISION_PROMPT = `Analyze this product packaging image and extract the following information:
 
-1. Product name (as shown on packaging)
-2. Detected materials (list all materials visible: plastic, glass, paper, metal, cardboard, etc.)
+1. Product name: the exact brand and product name as printed on the packaging. If it cannot be read, return "Unknown" rather than guessing.
+2. Detected materials: name the specific material when visible (PET plastic, HDPE plastic, glass, cardboard, paper, metal, etc.), not just "plastic".
 3. Label text (any recycling symbols, material codes, or environmental claims)
 4. Packaging type (bottle, box, bag, jar, can, wrapper, etc.)
 
@@ -43,7 +51,7 @@ Respond ONLY with a JSON object in this exact format:
   "confidence": number between 0-1
 }
 
-If any information is unclear, make your best estimate and set confidence accordingly.`;
+Set confidence to reflect your least certain field. If any information is unclear, make your best estimate and set confidence accordingly.`;
 
 // Validate + normalize a model's reply. Returns null when the reply
 // is unusable (not JSON, or missing the two required fields).
@@ -120,16 +128,28 @@ async function analyzePackagingWithGemini(
   }
 }
 
-// Gemini first, Groq second. Throws only when neither free option
-// produced a usable read, so the caller can tell the user to fill
-// the fields in by hand instead.
+// Gemini first, Groq second. If Gemini's read is vague or unsure,
+// ask Groq for a second opinion and keep the more specific answer
+// (Groq is the authority, Gemini fills in where Groq is vague).
+// The extra Groq call only happens when the first read is weak.
+// Throws only when neither free option produced a usable read, so the
+// caller can tell the user to fill the fields in by hand instead.
 export async function analyzePackagingWithFreeVision(
   imageDataUrl: string,
 ): Promise<FreeVisionResult> {
   const gemini = await analyzePackagingWithGemini(imageDataUrl);
+  if (gemini && !isVagueVision(gemini)) return gemini;
+  const groq = normalizeVision(
+    await analyzePackagingWithGroq(imageDataUrl, SECOND_OPINION_TIMEOUT_MS),
+  );
+  if (groq) {
+    const merged = mergeVisionWithHints(groq, gemini ?? {});
+    return {
+      ...merged,
+      confidence: Math.max(groq.confidence, gemini?.confidence ?? 0),
+    };
+  }
   if (gemini) return gemini;
-  const groq = normalizeVision(await analyzePackagingWithGroq(imageDataUrl));
-  if (groq) return groq;
   throw new Error(
     'Free vision is unavailable right now (Gemini and Groq both failed). Fill in the product name and packaging type yourself, then tap Analyze again.',
   );

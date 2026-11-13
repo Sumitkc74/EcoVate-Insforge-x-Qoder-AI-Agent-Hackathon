@@ -446,6 +446,9 @@ export default function ScanPage() {
         ...(result.detailWarning ? {
           detailWarning: result.detailWarning,
         } : {}),
+        ...(result.visionFallback ? {
+          visionFallback: result.visionFallback,
+        } : {}),
       });
       
       router.push(`/results?${queryParams.toString()}`);

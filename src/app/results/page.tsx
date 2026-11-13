@@ -31,6 +31,7 @@ function ResultsContent() {
   const [apiVersion, setApiVersion] = useState<string>('');
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [detailWarning, setDetailWarning] = useState<string | null>(null);
+  const [visionFallback, setVisionFallback] = useState<string | null>(null);
 
   useEffect(() => {
     const dataParam = searchParams.get('data');
@@ -50,6 +51,7 @@ function ResultsContent() {
     setApiVersion(searchParams.get('version') || '');
     setImageUploadError(searchParams.get('imageUploadError'));
     setDetailWarning(searchParams.get('detailWarning'));
+    setVisionFallback(searchParams.get('visionFallback'));
   }, [searchParams]);
 
   const handleDIYSelect = (diy: DIYIdea) => {
@@ -135,6 +137,12 @@ function ResultsContent() {
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
             <p className="text-sm font-semibold text-amber-700">Double-check the details for this scan.</p>
             <p className="text-sm text-amber-600 mt-1">{detailWarning}</p>
+          </div>
+        )}
+        {visionFallback && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+            <p className="text-sm font-semibold text-amber-700">This scan used the on-device reading.</p>
+            <p className="text-sm text-amber-600 mt-1">{visionFallback}</p>
           </div>
         )}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
