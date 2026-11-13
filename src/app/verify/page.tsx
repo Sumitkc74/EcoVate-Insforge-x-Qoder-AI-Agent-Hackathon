@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import UserMenu from '@/components/UserMenu';
 import { openAddDiy } from '@/lib/diy-continue';
 
 // Loading fallback
@@ -33,6 +34,12 @@ function VerifyContent() {
   const [estimatedCo2Saved, setEstimatedCo2Saved] = useState(0.5);
   const [userId, setUserId] = useState('');
   const [choosingAgain, setChoosingAgain] = useState(false);
+  // Signed-in user for the header menu (name + Sign out dropdown).
+  const [headerUser, setHeaderUser] = useState<{
+    name: string | null;
+    email: string | null;
+    avatar: string | null;
+  } | null>(null);
   
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -56,7 +63,14 @@ function VerifyContent() {
     setEstimatedCo2Saved(co2);
     // Needed for "Choose a different DIY" (the API takes userId).
     auth.getCurrentUser().then(({ data }) => {
-      if (data?.user) setUserId(data.user.id);
+      if (data?.user) {
+        setUserId(data.user.id);
+        setHeaderUser({
+          name: data.user.profile?.name || null,
+          email: data.user.email,
+          avatar: data.user.profile?.avatar_url || null,
+        });
+      }
     }).catch(() => {});
   }, [searchParams]);
 
@@ -192,10 +206,12 @@ function VerifyContent() {
                   Your project was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before {result.verified ? 'pending' : 'failed'} projects can save, so please submit again after that fix.
                 </p>
               )}
+              {/* Floor, don't round: a pending result at 84.5% must
+                  never display as 85% next to "85%+ is needed". */}
               <p className="text-sm text-gray-500 mb-6">
                 {result.verified
-                  ? `The AI thinks this may be complete, but is only ${Math.round(result.confidence * 100)}% confident — 85%+ is needed for automatic approval.`
-                  : `The AI is ${Math.round(result.confidence * 100)}% confident this photo does not show a completed project yet.`}
+                  ? `The AI thinks this may be complete, but is only ${Math.floor(result.confidence * 100)}% confident — 85%+ is needed for automatic approval.`
+                  : `The AI is ${Math.floor(result.confidence * 100)}% confident this photo does not show a completed project yet.`}
               </p>
             </>
           )}
@@ -240,25 +256,30 @@ function VerifyContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
-      {/* Header */}
+      {/* Header: back arrow + page title on the left, signed-in user
+          on the right — same nav as Scan and Dashboard. The title
+          lives here now, not in the body. */}
       <header className="bg-white shadow-sm">
-        <div className="max-w-md mx-auto px-4 py-4">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center text-gray-600 hover:text-gray-900"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back
-          </button>
+        <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => router.back()}
+              aria-label="Back"
+              className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <span className="font-bold text-gray-900">Complete Your Project</span>
+          </div>
+          <UserMenu user={headerUser} />
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-md mx-auto px-4 py-8">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Complete Your Project</h1>
           <p className="text-gray-600">Show us what you made with your {packagingType}!</p>
         </div>
 

@@ -45,6 +45,13 @@ export default function DashboardPage() {
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
 
+  // The signed-in user's own leaderboard row, so their rank stays
+  // visible even when the list scrolls past it.
+  const myEntry =
+    leaderboard !== null && user !== null
+      ? leaderboard.find((entry) => entry.id === user.id) ?? null
+      : null;
+
   useEffect(() => {
     checkAuth();
   }, []);
@@ -278,6 +285,12 @@ export default function DashboardPage() {
         {/* Leaderboard */}
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Leaderboard</h2>
+          {myEntry && (
+            <p className="text-sm text-gray-600 -mt-2 mb-3">
+              You are <span className="font-semibold text-gray-900">#{myEntry.rank}</span> with{' '}
+              <span className="font-semibold text-green-600">{myEntry.sustainability_score} pts</span>
+            </p>
+          )}
           {leaderboardError ? (
             <p className="text-sm text-gray-500">Leaderboard unavailable right now.</p>
           ) : leaderboard === null ? (

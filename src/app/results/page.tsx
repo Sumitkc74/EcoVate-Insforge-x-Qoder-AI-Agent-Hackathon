@@ -9,6 +9,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { auth, type ScanResult, type DIYIdea } from '@/lib/insforge';
+import UserMenu from '@/components/UserMenu';
 
 // Loading fallback
 function ResultsLoading() {
@@ -28,6 +29,12 @@ function ResultsContent() {
   const [scanId, setScanId] = useState<string>('');
   const [selectedDIY, setSelectedDIY] = useState<DIYIdea | null>(null);
   const [userId, setUserId] = useState<string>('');
+  // Signed-in user for the header menu (name + Sign out dropdown).
+  const [headerUser, setHeaderUser] = useState<{
+    name: string | null;
+    email: string | null;
+    avatar: string | null;
+  } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiVersion, setApiVersion] = useState<string>('');
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
@@ -60,7 +67,14 @@ function ResultsContent() {
     // The user id is needed to save a chosen idea (the API takes it
     // in the body — the session lives client-side).
     auth.getCurrentUser().then(({ data }) => {
-      if (data?.user) setUserId(data.user.id);
+      if (data?.user) {
+        setUserId(data.user.id);
+        setHeaderUser({
+          name: data.user.profile?.name || null,
+          email: data.user.email,
+          avatar: data.user.profile?.avatar_url || null,
+        });
+      }
     }).catch(() => {});
   }, [searchParams]);
 
@@ -128,23 +142,23 @@ function ResultsContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 pb-20">
-      {/* Header */}
+      {/* Header: back arrow + page title on the left, signed-in user
+          on the right — same nav as Scan and Dashboard. */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+        <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
             <button
               onClick={() => router.push('/scan')}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Back to scan"
+              className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h1 className="font-bold text-gray-900">Scan Results</h1>
-            <a href="/dashboard" className="text-sm text-green-600 font-medium">
-              Dashboard
-            </a>
+            <span className="font-bold text-gray-900">Scan Results</span>
           </div>
+          <UserMenu user={headerUser} />
         </div>
       </header>
 
