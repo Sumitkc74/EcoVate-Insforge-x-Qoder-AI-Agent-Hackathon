@@ -47,7 +47,7 @@ export default function HistoryPage() {
   const router = useRouter();
   const [data, setData] = useState<HistoryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'scans' | 'projects'>('projects');
+  const [activeTab, setActiveTab] = useState<'scans' | 'projects' | 'pending'>('projects');
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'scan' | 'project'; id: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState<'scans' | 'projects' | null>(null);
@@ -56,6 +56,7 @@ export default function HistoryPage() {
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
+  const [confirmEndId, setConfirmEndId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHistory();
@@ -121,12 +122,21 @@ export default function HistoryPage() {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan, userId);
+      await openAddDiy(router, scan.id, userId);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
       setAddDiyId(null);
     }
+  };
+
+  // "End it" on a pending project: cancel the pending verification.
+  // The pending action has 0 points, so nothing is taken back; the
+  // scan falls back to its chosen DIY (Incomplete) and can be
+  // retried or re-chosen from there.
+  const handleEndPending = async (id: string) => {
+    setConfirmEndId(null);
+    await handleDelete('project', id);
   };
 
   const handleDeleteAll = async (scope: 'scans' | 'projects') => {
@@ -167,11 +177,23 @@ export default function HistoryPage() {
     );
   }
 
-  // Separate projects by status
-  const pendingProjects = data?.actions.filter(a => a.action_type === 'diy_pending') || [];
+  // Separate projects by status. A chosen-but-not-attempted DIY shows
+  // in Projects as Incomplete; a submitted verification lives in its
+  // own Pending tab until it completes. A selected/pending row only
+  // counts when it is still the scan's latest DIY state — an older
+  // choice superseded by a completed or failed attempt is not listed
+  // twice.
+  const scanDiy = (scanId: string | null) =>
+    scanId ? getScanDiyState(scanId, data?.actions || []) : null;
+  const selectedProjects = (data?.actions || []).filter(
+    (a) => a.action_type === 'diy_selected' && scanDiy(a.scan_id)?.status === 'selected'
+  );
+  const pendingProjects = (data?.actions || []).filter(
+    (a) => a.action_type === 'diy_pending' && scanDiy(a.scan_id)?.status === 'pending'
+  );
   const failedProjects = data?.actions.filter(a => a.action_type === 'diy_failed') || [];
   const completedProjects = data?.actions.filter(a => a.action_type === 'diy_completed') || [];
-  const allProjects = [...pendingProjects, ...failedProjects, ...completedProjects].sort(
+  const allProjects = [...selectedProjects, ...failedProjects, ...completedProjects].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
@@ -218,6 +240,16 @@ export default function HistoryPage() {
             Projects ({allProjects.length})
           </button>
           <button
+            onClick={() => setActiveTab('pending')}
+            className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+              activeTab === 'pending'
+                ? 'bg-green-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Pending ({pendingProjects.length})
+          </button>
+          <button
             onClick={() => setActiveTab('scans')}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
               activeTab === 'scans'
@@ -236,7 +268,7 @@ export default function HistoryPage() {
           <div className="flex items-center space-x-4 text-sm">
             <div className="flex items-center">
               <span className="w-3 h-3 bg-amber-400 rounded-full mr-2"></span>
-              <span className="text-gray-600">Pending ({pendingProjects.length})</span>
+              <span className="text-gray-600">Incomplete ({selectedProjects.length})</span>
             </div>
             <div className="flex items-center">
               <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
@@ -320,6 +352,12 @@ export default function HistoryPage() {
             ) : (
               data?.scans.map((scan) => {
                 const diy = getScanDiyState(scan.id, data?.actions || []);
+                const resumeUrl = (diy.selectedAction || diy.failedAction) ? buildVerifyUrl({
+                  scanId: scan.id,
+                  projectTitle: (diy.selectedAction || diy.failedAction)?.project_title || scan.product_name,
+                  packagingType: diy.selectedAction?.packaging_type,
+                  estimatedCo2Saved: diy.selectedAction?.estimated_co2_saved,
+                }) : '';
                 return (
                 <div key={scan.id} className="bg-white rounded-xl shadow-lg p-4">
                   <div className="flex items-start space-x-3">
@@ -369,41 +407,50 @@ export default function HistoryPage() {
                       {!scan.image_url && (
                         <p className="text-xs text-gray-400 mt-2">Photo wasn&apos;t saved with this scan.</p>
                       )}
-                      {diy.status === 'none' && (
-                        <button
-                          onClick={() => handleAddDiy(scan)}
-                          disabled={addDiyId === scan.id}
-                          className="mt-2 text-xs font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
-                        >
-                          {addDiyId === scan.id ? 'Loading ideas…' : 'Add DIY'}
-                        </button>
-                      )}
-                      {diy.status === 'selected' && diy.selectedAction && (
-                        <button
-                          onClick={() => router.push(buildVerifyUrl({
-                            scanId: scan.id,
-                            projectTitle: diy.selectedAction?.project_title || scan.product_name,
-                            packagingType: diy.selectedAction?.packaging_type,
-                            estimatedCo2Saved: diy.selectedAction?.estimated_co2_saved,
-                          }))}
-                          className="mt-2 text-xs font-semibold text-green-600 hover:text-green-700"
-                        >
-                          Continue to upload →
-                        </button>
-                      )}
-                      {diy.status === 'failed' && (
-                        <button
-                          onClick={() => router.push(buildVerifyUrl({
-                            scanId: scan.id,
-                            projectTitle: diy.failedAction?.project_title || diy.selectedAction?.project_title || scan.product_name,
-                            packagingType: diy.selectedAction?.packaging_type,
-                            estimatedCo2Saved: diy.selectedAction?.estimated_co2_saved,
-                          }))}
-                          className="mt-2 text-xs font-semibold text-green-600 hover:text-green-700"
-                        >
-                          Try again →
-                        </button>
-                      )}
+                      <div className="flex items-center space-x-3 mt-2">
+                        {diy.status === 'none' && (
+                          <button
+                            onClick={() => handleAddDiy(scan)}
+                            disabled={addDiyId === scan.id}
+                            className="text-xs font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+                          >
+                            {addDiyId === scan.id ? 'Loading ideas…' : 'Add DIY'}
+                          </button>
+                        )}
+                        {diy.status === 'selected' && diy.selectedAction && (
+                          <button
+                            onClick={() => router.push(resumeUrl)}
+                            className="text-xs font-semibold text-green-600 hover:text-green-700"
+                          >
+                            Continue to upload →
+                          </button>
+                        )}
+                        {diy.status === 'failed' && (
+                          <button
+                            onClick={() => router.push(resumeUrl)}
+                            className="text-xs font-semibold text-green-600 hover:text-green-700"
+                          >
+                            Try again →
+                          </button>
+                        )}
+                        {diy.status === 'pending' && (
+                          <button
+                            onClick={() => router.push(resumeUrl)}
+                            className="text-xs font-semibold text-green-600 hover:text-green-700"
+                          >
+                            Upload again →
+                          </button>
+                        )}
+                        {diy.status !== 'none' && (
+                          <button
+                            onClick={() => handleAddDiy(scan)}
+                            disabled={addDiyId === scan.id}
+                            className="text-xs font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
+                          >
+                            {addDiyId === scan.id ? 'Loading…' : 'Choose again'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-col items-end space-y-2 shrink-0">
                       <span className="text-xs text-gray-400">
@@ -493,7 +540,7 @@ export default function HistoryPage() {
               </div>
             ) : (
               allProjects.map((action) => {
-                const isPending = action.action_type === 'diy_pending';
+                const isSelected = action.action_type === 'diy_selected';
                 const isFailed = action.action_type === 'diy_failed';
                 // What was uploaded: the project title saved at
                 // verification time, or the scanned product it came
@@ -503,22 +550,32 @@ export default function HistoryPage() {
                   ? data?.scans.find((s) => s.id === action.scan_id)
                   : undefined;
                 const projectName = action.project_title || linkedScan?.product_name || 'DIY Project';
+                // Resume verification with this row's chosen idea (the
+                // selected action for the scan carries the packaging
+                // type and CO2 estimate).
+                const diy = action.scan_id ? getScanDiyState(action.scan_id, data?.actions || []) : null;
+                const resumeUrl = action.scan_id ? buildVerifyUrl({
+                  scanId: action.scan_id,
+                  projectTitle: action.project_title || diy?.selectedAction?.project_title || linkedScan?.product_name || 'DIY Project',
+                  packagingType: diy?.selectedAction?.packaging_type,
+                  estimatedCo2Saved: diy?.selectedAction?.estimated_co2_saved,
+                }) : '';
                 return (
                   <div key={action.id} className={`bg-white rounded-xl shadow-lg p-4 border-l-4 ${
-                    isFailed ? 'border-red-400' : isPending ? 'border-amber-400' : 'border-green-500'
+                    isFailed ? 'border-red-400' : isSelected ? 'border-amber-400' : 'border-green-500'
                   }`}>
                     <div className="flex items-start space-x-3">
                       {action.image_url ? (
                         <img src={action.image_url} alt="" className="w-16 h-16 rounded-lg object-cover" />
                       ) : (
                         <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${
-                          isFailed ? 'bg-red-100' : isPending ? 'bg-amber-100' : 'bg-green-100'
+                          isFailed ? 'bg-red-100' : isSelected ? 'bg-amber-100' : 'bg-green-100'
                         }`}>
                           {isFailed ? (
                             <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
-                          ) : isPending ? (
+                          ) : isSelected ? (
                             <svg className="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
@@ -535,11 +592,11 @@ export default function HistoryPage() {
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
                             isFailed
                               ? 'bg-red-100 text-red-700'
-                              : isPending
+                              : isSelected
                               ? 'bg-amber-100 text-amber-700'
                               : 'bg-green-100 text-green-700'
                           }`}>
-                            {isFailed ? 'Failed' : isPending ? 'Pending Review' : 'Approved'}
+                            {isFailed ? 'Failed' : isSelected ? 'DIY Incomplete' : 'Approved'}
                           </span>
                         </div>
                         <p className="text-sm text-gray-500">
@@ -560,22 +617,47 @@ export default function HistoryPage() {
                               : 'Not a completed project — no points earned'}
                           </p>
                         )}
-                        {isPending && (
+                        {isSelected && (
                           <p className="text-xs text-amber-600 mt-1">
-                            {action.feedback
-                              ? action.feedback
-                              : 'Awaiting verification (need 85%+ confidence)'}
+                            DIY chosen — upload a photo to complete it
                           </p>
                         )}
-                        {!isFailed && !isPending && action.feedback && (
+                        {!isFailed && !isSelected && action.feedback && (
                           <p className="text-xs text-gray-500 mt-1">{action.feedback}</p>
                         )}
                       </div>
-                      {!isPending && !isFailed && action.impact_score > 0 && (
+                      {!isSelected && !isFailed && action.impact_score > 0 && (
                         <span className="text-green-600 font-bold">+{action.impact_score} pts</span>
                       )}
                     </div>
-                    <div className="flex justify-end mt-3">
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="flex items-center space-x-3 text-xs">
+                        {isSelected && (
+                          <button
+                            onClick={() => router.push(resumeUrl)}
+                            className="font-semibold text-green-600 hover:text-green-700"
+                          >
+                            Continue to upload →
+                          </button>
+                        )}
+                        {isFailed && (
+                          <button
+                            onClick={() => router.push(resumeUrl)}
+                            className="font-semibold text-green-600 hover:text-green-700"
+                          >
+                            Try again →
+                          </button>
+                        )}
+                        {linkedScan && (
+                          <button
+                            onClick={() => handleAddDiy(linkedScan)}
+                            disabled={addDiyId === linkedScan.id}
+                            className="font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
+                          >
+                            {addDiyId === linkedScan.id ? 'Loading…' : 'Choose again'}
+                          </button>
+                        )}
+                      </span>
                       {confirmDelete?.type === 'project' && confirmDelete.id === action.id ? (
                         <span className="flex items-center space-x-2 text-xs">
                           <button
@@ -599,6 +681,93 @@ export default function HistoryPage() {
                           title="Delete this project"
                         >
                           Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {activeTab === 'pending' && (
+          <div className="space-y-3">
+            {pendingProjects.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+                <p className="text-gray-500">No pending projects</p>
+                <p className="text-gray-400 text-sm mt-2">Verifications waiting for a confident result show up here until they complete</p>
+              </div>
+            ) : (
+              pendingProjects.map((action) => {
+                const linkedScan = action.scan_id
+                  ? data?.scans.find((s) => s.id === action.scan_id)
+                  : undefined;
+                const projectName = action.project_title || linkedScan?.product_name || 'DIY Project';
+                const diy = action.scan_id ? getScanDiyState(action.scan_id, data?.actions || []) : null;
+                const resumeUrl = action.scan_id ? buildVerifyUrl({
+                  scanId: action.scan_id,
+                  projectTitle: projectName,
+                  packagingType: diy?.selectedAction?.packaging_type,
+                  estimatedCo2Saved: diy?.selectedAction?.estimated_co2_saved,
+                }) : '';
+                return (
+                  <div key={action.id} className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-amber-400">
+                    <div className="flex items-center space-x-2">
+                      <h3 className="font-semibold text-gray-900">{projectName}</h3>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {new Date(action.created_at).toLocaleDateString()}
+                    </p>
+                    {linkedScan && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        From scan: {linkedScan.product_name}
+                      </p>
+                    )}
+                    <p className="text-xs text-amber-600 mt-1">
+                      {action.feedback
+                        ? action.feedback
+                        : 'Awaiting verification (need 85%+ confidence)'}
+                    </p>
+                    <div className="flex items-center space-x-3 mt-3 text-xs">
+                      <button
+                        onClick={() => router.push(resumeUrl)}
+                        className="font-semibold text-green-600 hover:text-green-700"
+                      >
+                        Upload again →
+                      </button>
+                      {linkedScan && (
+                        <button
+                          onClick={() => handleAddDiy(linkedScan)}
+                          disabled={addDiyId === linkedScan.id}
+                          className="font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
+                        >
+                          {addDiyId === linkedScan.id ? 'Loading…' : 'Choose again'}
+                        </button>
+                      )}
+                      {confirmEndId === action.id ? (
+                        <span className="flex items-center space-x-2">
+                          <button
+                            onClick={() => handleEndPending(action.id)}
+                            disabled={deletingId === action.id}
+                            className="text-red-600 font-semibold disabled:opacity-50"
+                          >
+                            {deletingId === action.id ? 'Ending…' : 'Confirm end it'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmEndId(null)}
+                            className="text-gray-500"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmEndId(action.id)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          End it
                         </button>
                       )}
                     </div>

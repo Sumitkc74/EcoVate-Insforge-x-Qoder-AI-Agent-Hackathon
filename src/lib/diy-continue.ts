@@ -86,18 +86,20 @@ export function buildVerifyUrl(args: {
   return `/verify?${params.toString()}`;
 }
 
-// "Add DIY" for a scan with no idea yet: fetch fresh ideas for the
-// stored scan and open the results page on the DIY tab.
+// "Add DIY" / "Choose again" for a saved scan: fetch fresh ideas for
+// it and open the results page on the DIY tab. The scan's stored
+// fields come back from the API, so callers only need the scan id.
 export async function openAddDiy(
   router: { push: (url: string) => void },
-  scan: DiyScanLike,
+  scanId: string,
   userId: string,
 ): Promise<void> {
-  const response = await fetch(`/api/diy-ideas?scanId=${encodeURIComponent(scan.id)}&userId=${encodeURIComponent(userId)}`);
+  const response = await fetch(`/api/diy-ideas?scanId=${encodeURIComponent(scanId)}&userId=${encodeURIComponent(userId)}`);
   const result = await response.json();
   if (!response.ok || !result.success) {
     throw new Error(result.error || 'Could not load DIY ideas for this scan');
   }
+  const scan = result.scan as DiyScanLike;
   const scanData: ScanResult = {
     product_name: scan.product_name,
     detected_materials: scan.materials || [],

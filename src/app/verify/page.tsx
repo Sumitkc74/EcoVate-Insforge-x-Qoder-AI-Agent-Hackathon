@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import { openAddDiy } from '@/lib/diy-continue';
 
 // Loading fallback
 function VerifyLoading() {
@@ -30,6 +31,8 @@ function VerifyContent() {
   const [projectTitle, setProjectTitle] = useState('');
   const [packagingType, setPackagingType] = useState('');
   const [estimatedCo2Saved, setEstimatedCo2Saved] = useState(0.5);
+  const [userId, setUserId] = useState('');
+  const [choosingAgain, setChoosingAgain] = useState(false);
   
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -51,7 +54,34 @@ function VerifyContent() {
     setPackagingType(searchParams.get('packagingType') || '');
     const co2 = parseFloat(searchParams.get('estimatedCo2Saved') || '0.5');
     setEstimatedCo2Saved(co2);
+    // Needed for "Choose a different DIY" (the API takes userId).
+    auth.getCurrentUser().then(({ data }) => {
+      if (data?.user) setUserId(data.user.id);
+    }).catch(() => {});
   }, [searchParams]);
+
+  // Back to the DIY options for this scan to pick a different idea.
+  const handleChooseAgain = async () => {
+    if (!scanId || !userId) return;
+    setChoosingAgain(true);
+    setError(null);
+    try {
+      await openAddDiy(router, scanId, userId);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChoosingAgain(false);
+    }
+  };
+
+  // Back to the upload form for the SAME chosen DIY, to try a new photo.
+  const handleRetry = () => {
+    setIsComplete(false);
+    setResult(null);
+    setSelectedFile(null);
+    setPreviewImage(null);
+    setError(null);
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -176,6 +206,27 @@ function VerifyContent() {
             </p>
           )}
 
+          {!(result.verified && result.confidence >= 0.85) && (
+            <div className="space-y-2 mb-4">
+              <button
+                onClick={handleRetry}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+              >
+                Retry with a new photo
+              </button>
+              <button
+                onClick={handleChooseAgain}
+                disabled={choosingAgain || !userId}
+                className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
+              >
+                {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
+              </button>
+            </div>
+          )}
+          {error && (
+            <p className="text-sm text-red-600 mb-4">{error}</p>
+          )}
+
           <button
             onClick={() => router.push('/dashboard')}
             className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
@@ -289,6 +340,25 @@ function VerifyContent() {
               />
             </div>
           )}
+        </div>
+
+        {/* Do it later / pick a different idea. The choice is already
+            saved (choosing the idea logs it), so leaving now shows the
+            scan as DIY Incomplete and the DIY in History. */}
+        <div className="mt-6 space-y-2">
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="w-full bg-white border-2 border-gray-200 hover:border-green-400 text-gray-700 font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+          >
+            Complete later
+          </button>
+          <button
+            onClick={handleChooseAgain}
+            disabled={choosingAgain || !userId}
+            className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
+          >
+            {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
+          </button>
         </div>
 
         {/* Photo privacy disclaimer */}

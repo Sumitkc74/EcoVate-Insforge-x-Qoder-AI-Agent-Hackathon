@@ -110,7 +110,7 @@ export default function DashboardPage() {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan, user.id);
+      await openAddDiy(router, scan.id, user.id);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
@@ -122,7 +122,7 @@ export default function DashboardPage() {
   // scanned with no DIY yet. Most recent first, max 5.
   const continueItems = (() => {
     if (!continueData) return [];
-    const items: { key: string; scanId: string; title: string; subtitle: string; cta: string; onClick: () => void }[] = [];
+    const items: { key: string; scanId: string; title: string; subtitle: string; cta: string; onClick: () => void; onChooseAgain?: () => void }[] = [];
     for (const scan of continueData.scans) {
       const diy = getScanDiyState(scan.id, continueData.actions);
       if (diy.status === 'selected' && diy.selectedAction) {
@@ -139,6 +139,7 @@ export default function DashboardPage() {
             packagingType: sel.packaging_type,
             estimatedCo2Saved: sel.estimated_co2_saved,
           })),
+          onChooseAgain: () => handleAddDiy(scan),
         });
       }
     }
@@ -200,13 +201,24 @@ export default function DashboardPage() {
                     <p className="font-medium text-gray-900 truncate">{item.title}</p>
                     <p className="text-sm text-gray-500 truncate">{item.subtitle}</p>
                   </div>
-                  <button
-                    onClick={item.onClick}
-                    disabled={item.cta === 'Add DIY' && addDiyId === item.scanId}
-                    className="shrink-0 text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
-                  >
-                    {item.cta === 'Add DIY' && addDiyId === item.scanId ? 'Loading…' : item.cta}
-                  </button>
+                  <span className="shrink-0 flex flex-col items-end space-y-1">
+                    <button
+                      onClick={item.onClick}
+                      disabled={item.cta === 'Add DIY' && addDiyId === item.scanId}
+                      className="text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+                    >
+                      {item.cta === 'Add DIY' && addDiyId === item.scanId ? 'Loading…' : item.cta}
+                    </button>
+                    {item.onChooseAgain && (
+                      <button
+                        onClick={item.onChooseAgain}
+                        disabled={addDiyId === item.scanId}
+                        className="text-xs font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
+                      >
+                        {addDiyId === item.scanId ? 'Loading…' : 'Choose again'}
+                      </button>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>
