@@ -130,10 +130,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Determine verification status
+    // verified=false means the AI found this is NOT a completed project,
+    // so it is a failed attempt, not pending. Only verified=true with
+    // confidence below 0.85 stays pending.
     const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85;
-    const actionType = isApproved ? 'diy_completed' : 'diy_pending';
-    
-    // Calculate impact score (0 for pending)
+    const actionType = isApproved
+      ? 'diy_completed'
+      : verificationResult.verified ? 'diy_pending' : 'diy_failed';
+
+    // Calculate impact score (0 for pending / failed)
     const impactScore = isApproved ? Math.round(10 + (estimatedCo2Saved * 20)) : 0;
 
     // Always save the verification attempt — and report the result
@@ -142,9 +147,9 @@ export async function POST(request: NextRequest) {
     // project could silently never appear in History. (Known cause:
     // the imported user_actions CHECK constraint only allows
     // 'scanned', 'diy_selected' and 'diy_completed', so 'diy_pending'
-    // inserts are rejected until the constraint is widened — see the
-    // SQL note in the verify page. The page now shows this error
-    // instead of claiming success.)
+    // and 'diy_failed' inserts are rejected until the constraint is
+    // widened to include both — see the SQL note in the verify page.
+    // The page now shows this error instead of claiming success.)
     let saved = true;
     let saveError: string | null = null;
     try {

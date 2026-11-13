@@ -83,8 +83,9 @@ export default function HistoryPage() {
 
   // Separate projects by status
   const pendingProjects = data?.actions.filter(a => a.action_type === 'diy_pending') || [];
+  const failedProjects = data?.actions.filter(a => a.action_type === 'diy_failed') || [];
   const completedProjects = data?.actions.filter(a => a.action_type === 'diy_completed') || [];
-  const allProjects = [...pendingProjects, ...completedProjects].sort(
+  const allProjects = [...pendingProjects, ...failedProjects, ...completedProjects].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
@@ -150,6 +151,10 @@ export default function HistoryPage() {
             <div className="flex items-center">
               <span className="w-3 h-3 bg-amber-400 rounded-full mr-2"></span>
               <span className="text-gray-600">Pending ({pendingProjects.length})</span>
+            </div>
+            <div className="flex items-center">
+              <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+              <span className="text-gray-600">Failed ({failedProjects.length})</span>
             </div>
             <div className="flex items-center">
               <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
@@ -238,18 +243,23 @@ export default function HistoryPage() {
             ) : (
               allProjects.map((action) => {
                 const isPending = action.action_type === 'diy_pending';
+                const isFailed = action.action_type === 'diy_failed';
                 return (
                   <div key={action.id} className={`bg-white rounded-xl shadow-lg p-4 border-l-4 ${
-                    isPending ? 'border-amber-400' : 'border-green-500'
+                    isFailed ? 'border-red-400' : isPending ? 'border-amber-400' : 'border-green-500'
                   }`}>
                     <div className="flex items-start space-x-3">
                       {action.image_url ? (
                         <img src={action.image_url} alt="" className="w-16 h-16 rounded-lg object-cover" />
                       ) : (
                         <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${
-                          isPending ? 'bg-amber-100' : 'bg-green-100'
+                          isFailed ? 'bg-red-100' : isPending ? 'bg-amber-100' : 'bg-green-100'
                         }`}>
-                          {isPending ? (
+                          {isFailed ? (
+                            <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          ) : isPending ? (
                             <svg className="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
@@ -264,23 +274,30 @@ export default function HistoryPage() {
                         <div className="flex items-center space-x-2">
                           <h3 className="font-semibold text-gray-900">DIY Project</h3>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            isPending 
-                              ? 'bg-amber-100 text-amber-700' 
+                            isFailed
+                              ? 'bg-red-100 text-red-700'
+                              : isPending
+                              ? 'bg-amber-100 text-amber-700'
                               : 'bg-green-100 text-green-700'
                           }`}>
-                            {isPending ? 'Pending Review' : 'Approved'}
+                            {isFailed ? 'Failed' : isPending ? 'Pending Review' : 'Approved'}
                           </span>
                         </div>
                         <p className="text-sm text-gray-500">
                           {new Date(action.created_at).toLocaleDateString()}
                         </p>
+                        {isFailed && (
+                          <p className="text-xs text-red-600 mt-1">
+                            Not a completed project — no points earned
+                          </p>
+                        )}
                         {isPending && (
                           <p className="text-xs text-amber-600 mt-1">
                             Awaiting verification (need 85%+ confidence)
                           </p>
                         )}
                       </div>
-                      {!isPending && action.impact_score > 0 && (
+                      {!isPending && !isFailed && action.impact_score > 0 && (
                         <span className="text-green-600 font-bold">+{action.impact_score} pts</span>
                       )}
                     </div>

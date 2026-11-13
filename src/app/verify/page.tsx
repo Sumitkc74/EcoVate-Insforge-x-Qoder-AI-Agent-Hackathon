@@ -142,27 +142,37 @@ function VerifyContent() {
             </>
           ) : (
             <>
-              <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification Pending</h1>
+              {result.verified ? (
+                <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+              )}
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">{result.verified ? 'Verification Pending' : 'Project Not Verified'}</h1>
               <p className="text-gray-600 mb-6">{result.feedback}</p>
               {result.saved === false && (
                 <p className="text-sm text-red-600 mb-6">
-                  Your project was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before pending projects can save, so please submit again after that fix.
+                  Your project was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before {result.verified ? 'pending' : 'failed'} projects can save, so please submit again after that fix.
                 </p>
               )}
               <p className="text-sm text-gray-500 mb-6">
-                Confidence: {Math.round(result.confidence * 100)}% (need 85%+ for automatic approval)
+                {result.verified
+                  ? `The AI thinks this may be complete, but is only ${Math.round(result.confidence * 100)}% confident — 85%+ is needed for automatic approval.`
+                  : `The AI is ${Math.round(result.confidence * 100)}% confident this photo does not show a completed project yet.`}
               </p>
             </>
           )}
 
           {result.saved === false && result.verified && result.confidence >= 0.85 && (
             <p className="text-sm text-red-600 mb-6">
-              Your project was verified but was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before pending projects can save, so please submit again after that fix.
+              Your project was verified but was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before verified projects can save, so please submit again after that fix.
             </p>
           )}
 

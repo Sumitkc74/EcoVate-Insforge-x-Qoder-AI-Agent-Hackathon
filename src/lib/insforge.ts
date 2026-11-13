@@ -55,7 +55,7 @@ export interface UserAction {
   id: string;
   user_id: string;
   scan_id: string | null;
-  action_type: 'scanned' | 'diy_selected' | 'diy_completed' | 'diy_pending';
+  action_type: 'scanned' | 'diy_selected' | 'diy_completed' | 'diy_pending' | 'diy_failed';
   impact_score: number;
   image_url: string | null;
   created_at: string;
