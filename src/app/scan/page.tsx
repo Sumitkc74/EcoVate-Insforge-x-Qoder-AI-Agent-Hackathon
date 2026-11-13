@@ -574,7 +574,7 @@ export default function ScanPage() {
                 <select
                   value={packagingType}
                   onChange={(e) => { manualEditedRef.current.add('packaging'); setPackagingType(e.target.value); }}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
                 >
                   <option value="">Packaging type</option>
                   <option value="bottle">Bottle</option>
