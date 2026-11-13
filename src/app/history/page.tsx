@@ -42,6 +42,8 @@ export default function HistoryPage() {
   const [activeTab, setActiveTab] = useState<'scans' | 'projects'>('projects');
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'scan' | 'project'; id: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState<'scans' | 'projects' | null>(null);
+  const [deletingAll, setDeletingAll] = useState<'scans' | 'projects' | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -100,6 +102,36 @@ export default function HistoryPage() {
       setDeleteError((e as Error).message);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleDeleteAll = async (scope: 'scans' | 'projects') => {
+    try {
+      const { data: userData, error } = await auth.getCurrentUser();
+      if (error || !userData?.user) {
+        router.push('/login');
+        return;
+      }
+      setDeletingAll(scope);
+      setDeleteError(null);
+      const response = await fetch('/api/history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: scope === 'scans' ? 'all-scans' : 'all-projects',
+          userId: userData.user.id,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Delete failed');
+      }
+      setConfirmDeleteAll(null);
+      await fetchHistory();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setDeletingAll(null);
     }
   };
 
@@ -211,6 +243,36 @@ export default function HistoryPage() {
         )}
         {activeTab === 'scans' && (
           <div className="space-y-3">
+            {(data?.scans.length || 0) > 0 && (
+              <div className="flex justify-end">
+                {confirmDeleteAll === 'scans' ? (
+                  <span className="flex items-center space-x-2 text-xs">
+                    <span className="text-gray-600">Delete all {data?.scans.length} scans? This can&apos;t be undone.</span>
+                    <button
+                      onClick={() => handleDeleteAll('scans')}
+                      disabled={deletingAll === 'scans'}
+                      className="text-red-600 font-semibold disabled:opacity-50"
+                    >
+                      {deletingAll === 'scans' ? 'Deleting…' : 'Confirm delete all'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteAll(null)}
+                      className="text-gray-500"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteAll('scans')}
+                    className="text-xs text-red-500 hover:text-red-700"
+                    title="Delete all scans"
+                  >
+                    Delete all
+                  </button>
+                )}
+              </div>
+            )}
             {data?.scans.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -294,6 +356,36 @@ export default function HistoryPage() {
 
         {activeTab === 'projects' && (
           <div className="space-y-3">
+            {allProjects.length > 0 && (
+              <div className="flex justify-end">
+                {confirmDeleteAll === 'projects' ? (
+                  <span className="flex items-center space-x-2 text-xs">
+                    <span className="text-gray-600">Delete all {allProjects.length} projects? This can&apos;t be undone.</span>
+                    <button
+                      onClick={() => handleDeleteAll('projects')}
+                      disabled={deletingAll === 'projects'}
+                      className="text-red-600 font-semibold disabled:opacity-50"
+                    >
+                      {deletingAll === 'projects' ? 'Deleting…' : 'Confirm delete all'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteAll(null)}
+                      className="text-gray-500"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteAll('projects')}
+                    className="text-xs text-red-500 hover:text-red-700"
+                    title="Delete all projects"
+                  >
+                    Delete all
+                  </button>
+                )}
+              </div>
+            )}
             {allProjects.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">

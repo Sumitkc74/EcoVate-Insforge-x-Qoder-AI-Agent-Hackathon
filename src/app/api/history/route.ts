@@ -1,14 +1,17 @@
 /**
  * DELETE /api/history
  *
- * Delete one of the signed-in user's own History items: a scan
- * (type 'scan') or a DIY project action (type 'project').
+ * Delete the signed-in user's own History items:
+ * - a single scan (type 'scan') or a single DIY project action
+ *   (type 'project'),
+ * - all of their scans (type 'all-scans'), or
+ * - all of their DIY projects (type 'all-projects').
  *
- * Ownership is enforced server-side: the row is only deleted when
- * its user_id matches the authenticated user. Deleting a scan also
- * deletes its linked actions for that scan, so no orphan project
- * rows are left behind. Points earned by a deleted approved
- * project (or by a scan's linked actions) are taken back off the
+ * Ownership is enforced server-side: rows are only deleted when
+ * their user_id matches the authenticated user. Deleting a scan
+ * also deletes its linked actions for that scan, so no orphan
+ * project rows are left behind. Points earned by deleted approved
+ * projects (or by a scan's linked actions) are taken back off the
  * user's sustainability_score.
  */
 
@@ -54,11 +57,45 @@ export async function DELETE(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if ((type !== 'scan' && type !== 'project') || !id) {
+    const validTypes = ['scan', 'project', 'all-scans', 'all-projects'];
+    if (!validTypes.includes(type) || ((type === 'scan' || type === 'project') && !id)) {
       return NextResponse.json(
-        { error: 'Missing required fields: type must be scan or project, and id is required' },
+        { error: 'Missing required fields: type must be scan, project, all-scans or all-projects, and id is required for scan/project' },
         { status: 400 }
       );
+    }
+
+    if (type === 'all-scans' || type === 'all-projects') {
+      // All of this user's scans, with their linked actions.
+      const { data: userScans } = await serverDb
+        .from('scans')
+        .select('id')
+        .eq('user_id', userId);
+      const scanIds = (userScans || []).map((s) => (s as { id: string }).id);
+
+      const { data: userActions } = await serverDb
+        .from('user_actions')
+        .select('id, scan_id, impact_score')
+        .eq('user_id', userId);
+      const actions = (userActions || []) as { id: string; scan_id: string | null; impact_score: number }[];
+
+      if (type === 'all-scans') {
+        // Linked actions are the ones tied to this user's scans.
+        const linked = actions.filter((a) => a.scan_id && scanIds.includes(a.scan_id));
+        const deletedImpact = linked.reduce((sum, a) => sum + (a.impact_score || 0), 0);
+        if (scanIds.length > 0) {
+          await serverDb.from('user_actions').delete().eq('user_id', userId).in('scan_id', scanIds);
+          await serverDb.from('scans').delete().eq('user_id', userId);
+        }
+        await adjustUserScore(userId, deletedImpact);
+        return NextResponse.json({ success: true, deletedCount: scanIds.length, deletedImpact });
+      }
+
+      // type === 'all-projects': delete every action, keep the scans.
+      const deletedImpact = actions.reduce((sum, a) => sum + (a.impact_score || 0), 0);
+      await serverDb.from('user_actions').delete().eq('user_id', userId);
+      await adjustUserScore(userId, deletedImpact);
+      return NextResponse.json({ success: true, deletedCount: actions.length, deletedImpact });
     }
 
     if (type === 'scan') {
