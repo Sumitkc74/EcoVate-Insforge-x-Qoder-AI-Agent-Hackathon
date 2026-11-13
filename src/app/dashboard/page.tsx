@@ -19,10 +19,20 @@ interface UserData {
   sustainability_score: number;
 }
 
+interface LeaderboardEntry {
+  rank: number;
+  id: string;
+  name: string | null;
+  avatar: string | null;
+  sustainability_score: number;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
+  const [leaderboardError, setLeaderboardError] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -56,6 +66,20 @@ export default function DashboardPage() {
         }
       } catch (e) {
         console.error('Failed to fetch dashboard data:', e);
+      }
+
+      // Leaderboard is a bonus section: never block or break the page if it fails.
+      try {
+        const leaderboardResponse = await fetch('/api/leaderboard');
+        const leaderboardData = await leaderboardResponse.json();
+        if (leaderboardResponse.ok && leaderboardData.success && Array.isArray(leaderboardData.leaderboard)) {
+          setLeaderboard(leaderboardData.leaderboard.slice(0, 10));
+        } else {
+          setLeaderboardError(true);
+        }
+      } catch (e) {
+        console.error('Failed to fetch leaderboard:', e);
+        setLeaderboardError(true);
       }
     } catch (e) {
       router.push('/login');
@@ -161,6 +185,62 @@ export default function DashboardPage() {
               </svg>
             </div>
           </button>
+        </div>
+
+        {/* Leaderboard */}
+        <div className="bg-white rounded-2xl shadow-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Leaderboard</h2>
+          {leaderboardError ? (
+            <p className="text-sm text-gray-500">Leaderboard unavailable right now.</p>
+          ) : leaderboard === null ? (
+            <p className="text-sm text-gray-500">Loading leaderboard…</p>
+          ) : leaderboard.length === 0 ? (
+            <p className="text-sm text-gray-500">No scores yet — complete a DIY project to be first.</p>
+          ) : (
+            <ol className="space-y-3">
+              {leaderboard.map((entry) => {
+                const isCurrentUser = user !== null && entry.id === user.id;
+                return (
+                  <li
+                    key={entry.id}
+                    className={`flex items-center space-x-3 rounded-xl px-3 py-2 ${
+                      isCurrentUser ? 'bg-green-50 ring-1 ring-green-500' : ''
+                    }`}
+                  >
+                    <span
+                      className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold ${
+                        entry.rank === 1
+                          ? 'bg-amber-100 text-amber-700'
+                          : entry.rank === 2
+                          ? 'bg-gray-100 text-gray-700'
+                          : entry.rank === 3
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-gray-50 text-gray-500'
+                      }`}
+                    >
+                      {entry.rank}
+                    </span>
+                    {entry.avatar ? (
+                      <img src={entry.avatar} alt={entry.name || ''} className="w-8 h-8 rounded-full" />
+                    ) : (
+                      <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
+                        <span className="text-white text-sm font-bold">
+                          {(entry.name || 'E')[0].toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    <span className="flex-1 font-medium text-gray-900 truncate">
+                      {entry.name || 'EcoVate user'}
+                      {isCurrentUser && (
+                        <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">You</span>
+                      )}
+                    </span>
+                    <span className="text-sm font-bold text-green-600">{entry.sustainability_score} pts</span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </div>
 
         {/* App Info */}

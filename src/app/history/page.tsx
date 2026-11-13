@@ -166,6 +166,14 @@ export default function HistoryPage() {
 
       {/* Content */}
       <main className="max-w-md mx-auto px-4">
+        {/* Summary */}
+        <div className="mb-6 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 text-white">
+          <div className="flex items-center justify-between">
+            <span>Total Impact Score</span>
+            <span className="text-2xl font-bold">{data?.totalImpact || 0}</span>
+          </div>
+          <p className="text-green-100 text-sm mt-1">From {completedProjects.length} approved projects</p>
+        </div>
         {activeTab === 'scans' && (
           <div className="space-y-3">
             {data?.scans.length === 0 ? (
@@ -307,15 +315,6 @@ export default function HistoryPage() {
             )}
           </div>
         )}
-
-        {/* Summary */}
-        <div className="mt-6 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 text-white">
-          <div className="flex items-center justify-between">
-            <span>Total Impact Score</span>
-            <span className="text-2xl font-bold">{data?.totalImpact || 0}</span>
-          </div>
-          <p className="text-green-100 text-sm mt-1">From {completedProjects.length} approved projects</p>
-        </div>
       </main>
     </div>
   );
