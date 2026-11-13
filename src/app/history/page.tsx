@@ -40,6 +40,9 @@ export default function HistoryPage() {
   const [data, setData] = useState<HistoryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'scans' | 'projects'>('projects');
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'scan' | 'project'; id: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHistory();
@@ -70,6 +73,33 @@ export default function HistoryPage() {
       console.error('Failed to fetch history:', e);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async (type: 'scan' | 'project', id: string) => {
+    try {
+      const { data: userData, error } = await auth.getCurrentUser();
+      if (error || !userData?.user) {
+        router.push('/login');
+        return;
+      }
+      setDeletingId(id);
+      setDeleteError(null);
+      const response = await fetch('/api/history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, id, userId: userData.user.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Delete failed');
+      }
+      setConfirmDelete(null);
+      await fetchHistory();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -174,6 +204,11 @@ export default function HistoryPage() {
           </div>
           <p className="text-green-100 text-sm mt-1">From {completedProjects.length} approved projects</p>
         </div>
+        {deleteError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">Could not delete: {deleteError}</p>
+          </div>
+        )}
         {activeTab === 'scans' && (
           <div className="space-y-3">
             {data?.scans.length === 0 ? (
@@ -220,9 +255,36 @@ export default function HistoryPage() {
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-gray-400">
-                      {new Date(scan.created_at).toLocaleDateString()}
-                    </span>
+                    <div className="flex flex-col items-end space-y-2 shrink-0">
+                      <span className="text-xs text-gray-400">
+                        {new Date(scan.created_at).toLocaleDateString()}
+                      </span>
+                      {confirmDelete?.type === 'scan' && confirmDelete.id === scan.id ? (
+                        <span className="flex items-center space-x-2 text-xs">
+                          <button
+                            onClick={() => handleDelete('scan', scan.id)}
+                            disabled={deletingId === scan.id}
+                            className="text-red-600 font-semibold disabled:opacity-50"
+                          >
+                            {deletingId === scan.id ? 'Deleting…' : 'Confirm delete'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="text-gray-500"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelete({ type: 'scan', id: scan.id })}
+                          className="text-xs text-red-500 hover:text-red-700"
+                          title="Delete this scan"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
@@ -307,6 +369,33 @@ export default function HistoryPage() {
                       </div>
                       {!isPending && !isFailed && action.impact_score > 0 && (
                         <span className="text-green-600 font-bold">+{action.impact_score} pts</span>
+                      )}
+                    </div>
+                    <div className="flex justify-end mt-3">
+                      {confirmDelete?.type === 'project' && confirmDelete.id === action.id ? (
+                        <span className="flex items-center space-x-2 text-xs">
+                          <button
+                            onClick={() => handleDelete('project', action.id)}
+                            disabled={deletingId === action.id}
+                            className="text-red-600 font-semibold disabled:opacity-50"
+                          >
+                            {deletingId === action.id ? 'Deleting…' : 'Confirm delete'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="text-gray-500"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelete({ type: 'project', id: action.id })}
+                          className="text-xs text-red-500 hover:text-red-700"
+                          title="Delete this project"
+                        >
+                          Delete
+                        </button>
                       )}
                     </div>
                   </div>
