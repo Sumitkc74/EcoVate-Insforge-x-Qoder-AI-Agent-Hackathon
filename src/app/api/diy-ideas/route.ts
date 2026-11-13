@@ -3,11 +3,13 @@
  *
  * DIY ideas for a scan that was saved earlier ("Add DIY" from History
  * or the dashboard). The ideas are generated on the fly and not stored,
- * so they are regenerated here: the stored photo is read with the free
- * vision path to recover the packaging type (the scans table does not
- * store it), then the DIY agent runs on the stored materials. Without
- * a photo, the packaging type falls back to "container" and the DIY
- * agent's built-in ideas are used. Only the scan's owner can use it.
+ * so they are regenerated here: the packaging type is read from the
+ * 'scanned' action the scan route stored it on, then the DIY agent
+ * runs on the stored materials. Only scans made before that was
+ * stored fall back to reading the stored photo with the free vision
+ * path; without a photo, the packaging type falls back to "container"
+ * and the DIY agent's built-in ideas are used. Only the scan's owner
+ * can use it.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -49,9 +51,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
     }
 
-    // Recover the packaging type from the stored photo when there is one.
+    // The packaging type was already worked out when the scan ran,
+    // and the scan route stores it on the 'scanned' action — so read
+    // it from there instead of re-running vision on the stored photo
+    // on every open. Vision on the photo is only the fallback for
+    // scans made before that was stored.
     let packagingType = 'container';
-    if (scan.image_url) {
+    try {
+      const { data: scannedAction } = await serverDb
+        .from('user_actions')
+        .select('packaging_type')
+        .eq('scan_id', scanId)
+        .eq('action_type', 'scanned')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      const stored = (scannedAction as { packaging_type?: string } | null)?.packaging_type;
+      if (stored) packagingType = stored;
+    } catch {
+      // No stored type — fall through to the photo below.
+    }
+    if (packagingType === 'container' && scan.image_url) {
       try {
         const imageResponse = await fetch(scan.image_url);
         if (imageResponse.ok) {

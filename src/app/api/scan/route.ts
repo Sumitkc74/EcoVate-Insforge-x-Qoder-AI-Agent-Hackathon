@@ -19,15 +19,98 @@ import {
   GUEST_POOL_MESSAGE,
   unauthorizedResponse,
   handleRouteError,
+  type AuthedUser,
 } from '@/lib/server-auth';
 
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck4-visionmerge';
+export const SCAN_API_VERSION = 'imgcheck5-parallel';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
+}
+
+// Upload the photo to storage. Kept separate so the scan route can
+// start it in parallel with the AI coordinator instead of after it:
+// the upload needs only the photo, not the AI result.
+async function uploadScanImage(
+  base64Image: string,
+  userId: string,
+): Promise<{ imageUrl: string | null; imageUploadError: string | null }> {
+  // Convert base64 to file for storage upload. The failure is
+  // returned in the response (imageUploadError) instead of only
+  // being logged server-side: previously the scan was saved with
+  // no photo and nothing told the user why History showed a
+  // placeholder.
+  try {
+    // Extract base64 data and mime type
+    const base64Match = base64Image.match(/^data:(.*?);base64,(.*)$/);
+    if (!base64Match) {
+      throw new Error('Invalid base64 image format');
+    }
+
+    const mimeType = base64Match[1] || 'image/jpeg';
+    const base64Data = base64Match[2];
+
+    // Use Buffer for base64 decoding (works in Edge runtime)
+    const byteArray = Buffer.from(base64Data, 'base64');
+    const blob = new Blob([byteArray], { type: mimeType });
+    const file = new File([blob], 'scan.jpg', { type: mimeType });
+
+    const { url, error: uploadError } = await uploadImage(file, `scans/${userId}`);
+    if (uploadError) {
+      return { imageUrl: null, imageUploadError: uploadError.message };
+    }
+    return { imageUrl: url, imageUploadError: null };
+  } catch (uploadErr) {
+    console.error('Image upload error:', uploadErr);
+    // Continue without image URL - non-critical error
+    return { imageUrl: null, imageUploadError: (uploadErr as Error).message };
+  }
+}
+
+// Ensure the public.users row exists: scans.user_id is a foreign
+// key to public.users(id), and new sign-ins never get a row there
+// (the callback's client-side profile insert is blocked by RLS,
+// which has no INSERT policy for users). Without this row the scan
+// insert fails on the foreign key and history stays empty, even
+// with the server-side client that bypasses RLS. Returns an error
+// message for the response, or null. Kept separate so it can run
+// in parallel with the AI coordinator.
+async function ensureUserProfile(user: AuthedUser): Promise<string | null> {
+  try {
+    // Identity comes from the validated session, never the body:
+    // the old code took name/email/avatar from the request, so
+    // anyone could rewrite any user's profile row by scanning as
+    // them.
+    const userEmail = user.email || `${user.id}@ecovate.local`;
+    // ignoreDuplicates: a plain upsert overwrites EVERY column on
+    // conflict, so this used to reset sustainability_score to 0 on
+    // every scan — wiping points a user had already earned (e.g. the
+    // 35 merged legacy points). With ignoreDuplicates, an existing
+    // row is left untouched and the 0 score only applies to a
+    // brand-new user row.
+    const { error: profileError } = await serverDb
+      .from('users')
+      .upsert([{
+        id: user.id,
+        email: userEmail,
+        // Anonymous accounts have no email to derive a name from,
+        // so they fall back to 'Guest' (or the name they chose).
+        name: user.name || (user.isAnonymous ? 'Guest' : userEmail.split('@')[0]),
+        avatar: user.avatar,
+        sustainability_score: 0,
+      }], { onConflict: 'id', ignoreDuplicates: true });
+    if (profileError) {
+      console.error('Profile upsert error:', profileError);
+      return 'Profile could not be saved.';
+    }
+    return null;
+  } catch (profileErr) {
+    console.error('Profile upsert exception:', profileErr);
+    return 'Profile could not be saved.';
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -115,9 +198,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Run Coordinator Agent (Vision → Research → DIY, or manual → Research → DIY)
+    // The coordinator (AI), the photo upload and the profile
+    // upsert are independent — they used to run one after the other,
+    // which put the storage round-trip and the profile write on the
+    // scan's critical path. They now run together; only the scan
+    // insert below still waits for the AI result and the photo URL.
+    // If the AI fails, the upload and profile work already done is
+    // harmless (the profile row should exist anyway; a failed scan
+    // leaves one unreferenced photo in storage).
     console.log('Starting Coordinator Agent...');
-    const coordinatorResult = await runCoordinatorAgent(base64Image, manual);
+    const coordinatorPromise = runCoordinatorAgent(base64Image, manual);
+    const uploadPromise = uploadScanImage(base64Image, userId);
+    const profilePromise = ensureUserProfile(user);
+
+    const coordinatorResult = await coordinatorPromise;
 
     // Honest degradation note: when vision was down and the scan was
     // built from the on-device results instead, say so on the results
@@ -139,84 +233,14 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Convert base64 to file for storage upload. The failure is
-    // returned in the response (imageUploadError) instead of only
-    // being logged server-side: previously the scan was saved with
-    // no photo and nothing told the user why History showed a
-    // placeholder.
-    let imageUrl: string | null = null;
-    let imageUploadError: string | null = null;
-    try {
-      // Extract base64 data and mime type
-      const base64Match = base64Image.match(/^data:(.*?);base64,(.*)$/);
-      if (!base64Match) {
-        throw new Error('Invalid base64 image format');
-      }
-
-      const mimeType = base64Match[1] || 'image/jpeg';
-      const base64Data = base64Match[2];
-
-      // Use Buffer for base64 decoding (works in Edge runtime)
-      const byteArray = Buffer.from(base64Data, 'base64');
-      const blob = new Blob([byteArray], { type: mimeType });
-      const file = new File([blob], 'scan.jpg', { type: mimeType });
-
-      const { url, error: uploadError } = await uploadImage(file, `scans/${userId}`);
-      if (uploadError) {
-        imageUploadError = uploadError.message;
-      } else {
-        imageUrl = url;
-      }
-    } catch (uploadErr) {
-      imageUploadError = (uploadErr as Error).message;
-      console.error('Image upload error:', uploadErr);
-      // Continue without image URL - non-critical error
-    }
+    const { imageUrl, imageUploadError } = await uploadPromise;
 
     // Diagnostic fields: previously a failed scan insert was only
     // logged server-side (logs are not reachable here) and the client
     // silently fell back to a temporary ID, so the real error was
     // invisible. Return it in the response instead.
-    let profileErrorMsg: string | null = null;
+    const profileErrorMsg: string | null = await profilePromise;
     let dbErrorMsg: string | null = null;
-
-    // Ensure the public.users row exists first: scans.user_id is a
-    // foreign key to public.users(id), and new sign-ins never get a row
-    // there (the callback's client-side profile insert is blocked by
-    // RLS, which has no INSERT policy for users). Without this row the
-    // scan insert fails on the foreign key and history stays empty,
-    // even with the server-side client that bypasses RLS.
-    try {
-      // Identity comes from the validated session, never the body:
-      // the old code took name/email/avatar from the request, so
-      // anyone could rewrite any user's profile row by scanning as
-      // them.
-      const userEmail = user.email || `${userId}@ecovate.local`;
-      // ignoreDuplicates: a plain upsert overwrites EVERY column on
-      // conflict, so this used to reset sustainability_score to 0 on
-      // every scan — wiping points a user had already earned (e.g. the
-      // 35 merged legacy points). With ignoreDuplicates, an existing
-      // row is left untouched and the 0 score only applies to a
-      // brand-new user row.
-      const { error: profileError } = await serverDb
-        .from('users')
-        .upsert([{
-          id: userId,
-          email: userEmail,
-          // Anonymous accounts have no email to derive a name from,
-          // so they fall back to 'Guest' (or the name they chose).
-          name: user.name || (user.isAnonymous ? 'Guest' : userEmail.split('@')[0]),
-          avatar: user.avatar,
-          sustainability_score: 0,
-        }], { onConflict: 'id', ignoreDuplicates: true });
-      if (profileError) {
-        profileErrorMsg = 'Profile could not be saved.';
-        console.error('Profile upsert error:', profileError);
-      }
-    } catch (profileErr) {
-      profileErrorMsg = 'Profile could not be saved.';
-      console.error('Profile upsert exception:', profileErr);
-    }
 
     // Save scan to database
     const scanData = {
@@ -248,15 +272,30 @@ export async function POST(request: NextRequest) {
       console.error('Database insert error:', dbErr);
     }
 
-    // Log user action
+    // Log user action. The packaging type is stored here too, so
+    // "Add DIY" later does not have to re-read the stored photo
+    // with vision to recover it (see /api/diy-ideas). The column
+    // needs the one-time SQL from Nov 12 — until it exists, the
+    // insert falls back to the columns that do, same as /api/actions.
     try {
-      await serverDb.from('user_actions').insert([{
+      const actionRow: Record<string, unknown> = {
         user_id: userId,
         scan_id: scanId,
         action_type: 'scanned',
         impact_score: 0,
         image_url: imageUrl,
-      }]);
+      };
+      const packagingType = coordinatorResult.data!.packaging_type;
+      if (packagingType) actionRow.packaging_type = packagingType;
+      const { error: actionError } = await serverDb.from('user_actions').insert([actionRow]);
+      if (actionError && /packaging_type|42703/.test(
+        `${(actionError as { code?: string }).code || ''} ${(actionError as { message?: string }).message || ''}`,
+      )) {
+        const { packaging_type: _dropped, ...fallbackRow } = actionRow;
+        await serverDb.from('user_actions').insert([fallbackRow]);
+      } else if (actionError) {
+        console.error('Action log error:', actionError);
+      }
     } catch (actionErr) {
       console.error('Action log error:', actionErr);
     }

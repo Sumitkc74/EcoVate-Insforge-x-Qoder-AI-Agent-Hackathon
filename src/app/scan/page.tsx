@@ -9,6 +9,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
+import { downscaleImageFile, MAX_PHOTO_DIMENSION } from '@/lib/image-resize';
 import UserMenu from '@/components/UserMenu';
 
 export default function ScanPage() {
@@ -57,16 +58,22 @@ export default function ScanPage() {
     avatar: string | null;
   } | null>(null);
 
-  // Handle file selection
-  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file selection. The photo is downscaled to 1024px on
+  // the longest side first: a full-resolution phone photo sent as
+  // base64 approaches Vercel's 4.5MB function limit, and 1024px is
+  // plenty for OCR, shape detection and the AI vision calls. The
+  // downscaled file is what every later step uses (preview, OCR,
+  // material guess, scan), so nothing else has to change.
+  const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
         setError('Please select an image file');
         return;
       }
-      setSelectedFile(file);
-      setPreviewImage(URL.createObjectURL(file));
+      const resized = await downscaleImageFile(file);
+      setSelectedFile(resized);
+      setPreviewImage(URL.createObjectURL(resized));
       manualEditedRef.current.clear();
       setError(null);
       setOcrText('');
@@ -142,15 +149,21 @@ export default function ScanPage() {
     }
   }, []);
 
-  // Capture photo from camera
+  // Capture photo from camera. The frame is drawn at most 1024px
+  // on the longest side (same downscale as file uploads): a full
+  // camera frame sent as base64 approaches Vercel's 4.5MB function
+  // limit, and 1024px is plenty for the vision steps.
   const capturePhoto = useCallback(() => {
     if (videoRef.current) {
+      const videoWidth = videoRef.current.videoWidth;
+      const videoHeight = videoRef.current.videoHeight;
+      const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(videoWidth, videoHeight));
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      canvas.width = Math.round(videoWidth * scale);
+      canvas.height = Math.round(videoHeight * scale);
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0);
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         canvas.toBlob((blob) => {
           if (blob) {
             const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' });
@@ -167,7 +180,7 @@ export default function ScanPage() {
               streamRef.current = null;
             }
           }
-        }, 'image/jpeg');
+        }, 'image/jpeg', 0.85);
       }
     }
   }, []);

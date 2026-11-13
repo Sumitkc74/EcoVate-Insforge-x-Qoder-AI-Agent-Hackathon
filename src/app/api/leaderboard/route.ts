@@ -23,8 +23,23 @@ interface LeaderboardUser {
   created_at: string;
 }
 
+// The board changes only when someone completes a DIY project, so
+// a 60-second cache is plenty — without it every dashboard load
+// re-reads the whole user_actions table. The response is identical
+// for every viewer (public by design, emails stripped), so it is
+// safe to cache in memory and at the edge. A fresh completion shows
+// up within a minute.
+const CACHE_TTL_MS = 60_000;
+let cachedBoard: { at: number; body: { success: true; leaderboard: unknown[] } } | null = null;
+
 export async function GET(request: NextRequest) {
   try {
+    if (cachedBoard && Date.now() - cachedBoard.at < CACHE_TTL_MS) {
+      return NextResponse.json(cachedBoard.body, {
+        headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=30' },
+      });
+    }
+
     // Public by design (names and scores only — emails are stripped
     // below), but the service client is still needed to read other
     // users' actions, so a missing service key is a 503, not a
@@ -35,19 +50,22 @@ export async function GET(request: NextRequest) {
     // it is a stale cache (a scan once reset it to 0) and a number
     // in it can exist with no history behind it. The service client
     // is needed here because the anon client cannot read other
-    // users' actions.
-    const { data: allUsers, error: usersError } = await serverDb
-      .from('users')
-      .select('id, email, name, avatar, created_at')
-      .limit(100);
+    // users' actions. The two reads are independent, so they run
+    // together instead of one after the other.
+    const [{ data: allUsers, error: usersError }, { data: allActions, error: actionsError }] =
+      await Promise.all([
+        serverDb
+          .from('users')
+          .select('id, email, name, avatar, created_at')
+          .limit(100),
+        serverDb
+          .from('user_actions')
+          .select('user_id, impact_score'),
+      ]);
 
     if (usersError) {
       throw usersError;
     }
-
-    const { data: allActions, error: actionsError } = await serverDb
-      .from('user_actions')
-      .select('user_id, impact_score');
 
     if (actionsError) {
       throw actionsError;
@@ -95,9 +113,13 @@ export async function GET(request: NextRequest) {
         ...user,
       }));
 
-    return NextResponse.json({
-      success: true,
+    const body = {
+      success: true as const,
       leaderboard: rankedUsers,
+    };
+    cachedBoard = { at: Date.now(), body };
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=30' },
     });
 
   } catch (error) {

@@ -17,8 +17,11 @@ import {
 } from '@/lib/server-auth';
 
 async function getDashboardData(userId: string) {
-  // Get user profile (may fail due to RLS, provide defaults)
-  let userProfile = {
+  // The four reads are independent, so they run together instead of
+  // one after the other. Each fetcher swallows its own failure and
+  // returns a default — one slow or failing table must not take the
+  // whole dashboard down, as before.
+  const defaultProfile = {
     id: userId,
     email: '',
     name: null as string | null,
@@ -27,56 +30,53 @@ async function getDashboardData(userId: string) {
     created_at: new Date().toISOString(),
   };
 
-  try {
-    const { data: profile, error: userError } = await serverDb
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (!userError && profile) {
-      userProfile = profile;
+  const fetchProfile = async () => {
+    try {
+      const { data: profile, error: userError } = await serverDb
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (!userError && profile) return profile;
+    } catch (e) {
+      console.error('Profile fetch error:', e);
     }
-  } catch (e) {
-    console.error('Profile fetch error:', e);
-  }
+    return defaultProfile;
+  };
 
-  // Get scan history
-  let scans: unknown[] = [];
-  let scanErrorMsg: string | null = null;
-  try {
-    const { data, error } = await serverDb
-      .from('scans')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (error) {
-      console.error('Scans fetch error:', error);
-      scanErrorMsg = error.message;
-    } else if (data) {
-      scans = data;
+  const fetchScans = async (): Promise<{ rows: unknown[]; count: number | null; error: string | null }> => {
+    try {
+      const { data, error, count } = await serverDb
+        .from('scans')
+        .select('*', { count: 'exact' })
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (error) {
+        console.error('Scans fetch error:', error);
+        return { rows: [], count: null, error: error.message };
+      }
+      return { rows: data || [], count: typeof count === 'number' ? count : null, error: null };
+    } catch (e) {
+      console.error('Scans fetch exception:', e);
+      return { rows: [], count: null, error: (e as Error).message };
     }
-  } catch (e) {
-    console.error('Scans fetch exception:', e);
-    scanErrorMsg = (e as Error).message;
-  }
+  };
 
-  // Get user actions
-  let actions: unknown[] = [];
-  try {
-    const { data, error } = await serverDb
-      .from('user_actions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (!error && data) {
-      actions = data;
+  const fetchActions = async (): Promise<unknown[]> => {
+    try {
+      const { data, error } = await serverDb
+        .from('user_actions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (!error && data) return data;
+    } catch (e) {
+      console.error('Actions fetch error:', e);
     }
-  } catch (e) {
-    console.error('Actions fetch error:', e);
-  }
+    return [];
+  };
 
   // The score is derived, never stored: add up every action's points
   // from History. The 20 most recent actions above are only for
@@ -85,23 +85,39 @@ async function getDashboardData(userId: string) {
   // Nothing here reads users.sustainability_score: that column is a
   // stale cache (a scan once reset it to 0), and a number in it can
   // exist with no history behind it.
-  let totalImpact = 0;
-  let completedProjects = 0;
-  try {
-    const { data: scoreRows, error: scoreError } = await serverDb
-      .from('user_actions')
-      .select('action_type, impact_score')
-      .eq('user_id', userId);
-    if (!scoreError && scoreRows) {
-      const scored = scoreRows as Array<{ action_type: string; impact_score: number }>;
-      totalImpact = scored.reduce((sum, a) => sum + (a.impact_score || 0), 0);
-      completedProjects = scored.filter(a => a.action_type === 'diy_completed').length;
+  const fetchScore = async (): Promise<{ totalImpact: number; completedProjects: number }> => {
+    try {
+      const { data: scoreRows, error: scoreError } = await serverDb
+        .from('user_actions')
+        .select('action_type, impact_score')
+        .eq('user_id', userId);
+      if (!scoreError && scoreRows) {
+        const scored = scoreRows as Array<{ action_type: string; impact_score: number }>;
+        return {
+          totalImpact: scored.reduce((sum, a) => sum + (a.impact_score || 0), 0),
+          completedProjects: scored.filter(a => a.action_type === 'diy_completed').length,
+        };
+      }
+    } catch (e) {
+      console.error('Score sum error:', e);
     }
-  } catch (e) {
-    console.error('Score sum error:', e);
-  }
+    return { totalImpact: 0, completedProjects: 0 };
+  };
 
-  const totalScans = scans.length;
+  const [userProfile, scansRes, actions, scoreRes] = await Promise.all([
+    fetchProfile(),
+    fetchScans(),
+    fetchActions(),
+    fetchScore(),
+  ]);
+  const scans = scansRes.rows;
+  const scanErrorMsg = scansRes.error;
+  const { totalImpact, completedProjects } = scoreRes;
+
+  // totalScans is the real count, not the 10 rows shown: the scans
+  // query asks for an exact count alongside its 10-row page. If the
+  // backend does not return a count, fall back to the rows in hand.
+  const totalScans = scansRes.count ?? scans.length;
   // The dashboard score and the History total are the same derived number.
   userProfile.sustainability_score = totalImpact;
   

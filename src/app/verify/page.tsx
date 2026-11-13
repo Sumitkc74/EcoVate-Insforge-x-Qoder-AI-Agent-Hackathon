@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
+import { downscaleImageFile } from '@/lib/image-resize';
 import UserMenu from '@/components/UserMenu';
 import { openAddDiy } from '@/lib/diy-continue';
 
@@ -95,15 +96,20 @@ function VerifyContent() {
     setError(null);
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // The photo is downscaled to 1024px on the longest side first
+  // (same as the scan page): a full-resolution phone photo is
+  // several megabytes, and the verification route sends it to the
+  // AI as base64. 1024px is plenty for the verification read.
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
         setError('Please select an image file');
         return;
       }
-      setSelectedFile(file);
-      setPreviewImage(URL.createObjectURL(file));
+      const resized = await downscaleImageFile(file);
+      setSelectedFile(resized);
+      setPreviewImage(URL.createObjectURL(resized));
       setError(null);
     }
   };
