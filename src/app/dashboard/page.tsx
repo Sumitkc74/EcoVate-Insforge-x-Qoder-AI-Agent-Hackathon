@@ -9,7 +9,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
-import { signOut } from '@/lib/auth';
+import LeafLogo from '@/components/LeafLogo';
+import UserMenu from '@/components/UserMenu';
 
 interface UserData {
   id: string;
@@ -88,11 +89,6 @@ export default function DashboardPage() {
     }
   };
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push('/login');
-  };
-
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100">
@@ -103,30 +99,12 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
-      {/* Header */}
+      {/* Header: logo + name on the left, signed-in user on the right.
+          Tapping the name opens a dropdown with Sign out. */}
       <header className="bg-white shadow-sm">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            {user?.avatar ? (
-              <img src={user.avatar} alt={user.name || ''} className="w-10 h-10 rounded-full" />
-            ) : (
-              <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold">{(user?.name || user?.email || 'U')[0].toUpperCase()}</span>
-              </div>
-            )}
-            <div>
-              <h1 className="font-bold text-gray-900">{user?.name || 'Welcome'}</h1>
-              <p className="text-xs text-gray-500">{user?.email}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+          <LeafLogo />
+          <UserMenu user={user} showEmail />
         </div>
       </header>
 

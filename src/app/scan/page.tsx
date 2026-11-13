@@ -9,6 +9,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import UserMenu from '@/components/UserMenu';
 
 export default function ScanPage() {
   const router = useRouter();
@@ -49,6 +50,12 @@ export default function ScanPage() {
   // for the user to confirm and is never applied on its own,
   // because appearance alone cannot prove a material.
   const [materialGuess, setMaterialGuess] = useState('');
+  // Signed-in user for the header menu (name + Sign out dropdown).
+  const [headerUser, setHeaderUser] = useState<{
+    name: string | null;
+    email: string | null;
+    avatar: string | null;
+  } | null>(null);
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,6 +73,20 @@ export default function ScanPage() {
         setImageCheck('');
         setMaterialGuess('');
           }
+  }, []);
+
+  // Load the signed-in user for the header menu. No redirect here:
+  // the scan itself asks the user to log in when they hit Analyze.
+  useEffect(() => {
+    auth.getCurrentUser().then(({ data }) => {
+      if (data?.user) {
+        setHeaderUser({
+          name: data.user.profile?.name || null,
+          email: data.user.email,
+          avatar: data.user.profile?.avatar_url || null,
+        });
+      }
+    }).catch(() => {});
   }, []);
 
   // Store stream in a ref so we can access it immediately
@@ -481,20 +502,23 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
-      {/* Header */}
+      {/* Header: back arrow + page title on the left, signed-in user
+          on the right. The title lives here now, not in the body. */}
       <header className="bg-white shadow-sm">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <button
+              onClick={() => router.push('/dashboard')}
+              aria-label="Back to dashboard"
+              className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-            </div>
-            <span className="font-bold text-gray-900">Ecovate</span>
+            </button>
+            <span className="font-bold text-gray-900">Scan Product Packaging</span>
           </div>
-          <a href="/dashboard" className="text-sm text-green-600 hover:text-green-700 font-medium">
-            Dashboard
-          </a>
+          <UserMenu user={headerUser} />
         </div>
       </header>
 
@@ -662,7 +686,6 @@ export default function ScanPage() {
           // Initial State
           <div className="space-y-6">
             <div className="text-center">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Scan Product Packaging</h1>
               <p className="text-gray-600">Take a photo of any product to get upcycling ideas</p>
             </div>
 
