@@ -9,6 +9,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import { getScanDiyState, buildVerifyUrl, openAddDiy } from '@/lib/diy-continue';
 
 interface Scan {
   id: string;
@@ -30,6 +31,10 @@ interface UserAction {
   // Saved by /api/verify; null on older rows (predates the columns).
   feedback?: string | null;
   project_title?: string | null;
+  // Saved by /api/actions when an idea is chosen; null on older rows
+  // and until the one-time SQL adding these columns is run.
+  packaging_type?: string | null;
+  estimated_co2_saved?: number | null;
 }
 
 interface HistoryData {
@@ -48,6 +53,8 @@ export default function HistoryPage() {
   const [confirmDeleteAll, setConfirmDeleteAll] = useState<'scans' | 'projects' | null>(null);
   const [deletingAll, setDeletingAll] = useState<'scans' | 'projects' | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [addDiyId, setAddDiyId] = useState<string | null>(null);
+  const [diyError, setDiyError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHistory();
@@ -105,6 +112,18 @@ export default function HistoryPage() {
       setDeleteError((e as Error).message);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleAddDiy = async (scan: Scan) => {
+    setAddDiyId(scan.id);
+    setDiyError(null);
+    try {
+      await openAddDiy(router, scan);
+    } catch (e) {
+      setDiyError((e as Error).message);
+    } finally {
+      setAddDiyId(null);
     }
   };
 
@@ -244,6 +263,11 @@ export default function HistoryPage() {
             <p className="text-sm text-red-600">Could not delete: {deleteError}</p>
           </div>
         )}
+        {diyError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">Could not load DIY ideas: {diyError}</p>
+          </div>
+        )}
         {activeTab === 'scans' && (
           <div className="space-y-3">
             {(data?.scans.length || 0) > 0 && (
@@ -292,7 +316,9 @@ export default function HistoryPage() {
                 </button>
               </div>
             ) : (
-              data?.scans.map((scan) => (
+              data?.scans.map((scan) => {
+                const diy = getScanDiyState(scan.id, data?.actions || []);
+                return (
                 <div key={scan.id} className="bg-white rounded-xl shadow-lg p-4">
                   <div className="flex items-start space-x-3">
                     {scan.image_url ? (
@@ -305,7 +331,24 @@ export default function HistoryPage() {
                       </div>
                     )}
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{scan.product_name}</h3>
+                      <div className="flex items-center space-x-2">
+                        <h3 className="font-semibold text-gray-900">{scan.product_name}</h3>
+                        <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
+                          diy.status === 'completed'
+                            ? 'bg-green-100 text-green-700'
+                            : diy.status === 'pending' || diy.status === 'selected'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {diy.status === 'completed'
+                            ? 'DIY Completed'
+                            : diy.status === 'pending'
+                            ? 'Pending Review'
+                            : diy.status === 'selected'
+                            ? 'DIY Chosen'
+                            : 'Not completed'}
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-500 capitalize">{scan.materials?.join(', ') || 'Unknown materials'}</p>
                       <div className="flex items-center mt-2 space-x-3">
                         {scan.carbon_footprint !== null && (
@@ -321,6 +364,41 @@ export default function HistoryPage() {
                       </div>
                       {!scan.image_url && (
                         <p className="text-xs text-gray-400 mt-2">Photo wasn&apos;t saved with this scan.</p>
+                      )}
+                      {diy.status === 'none' && (
+                        <button
+                          onClick={() => handleAddDiy(scan)}
+                          disabled={addDiyId === scan.id}
+                          className="mt-2 text-xs font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+                        >
+                          {addDiyId === scan.id ? 'Loading ideas…' : 'Add DIY'}
+                        </button>
+                      )}
+                      {diy.status === 'selected' && diy.selectedAction && (
+                        <button
+                          onClick={() => router.push(buildVerifyUrl({
+                            scanId: scan.id,
+                            projectTitle: diy.selectedAction?.project_title || scan.product_name,
+                            packagingType: diy.selectedAction?.packaging_type,
+                            estimatedCo2Saved: diy.selectedAction?.estimated_co2_saved,
+                          }))}
+                          className="mt-2 text-xs font-semibold text-green-600 hover:text-green-700"
+                        >
+                          Continue to upload →
+                        </button>
+                      )}
+                      {diy.status === 'failed' && (
+                        <button
+                          onClick={() => router.push(buildVerifyUrl({
+                            scanId: scan.id,
+                            projectTitle: diy.failedAction?.project_title || diy.selectedAction?.project_title || scan.product_name,
+                            packagingType: diy.selectedAction?.packaging_type,
+                            estimatedCo2Saved: diy.selectedAction?.estimated_co2_saved,
+                          }))}
+                          className="mt-2 text-xs font-semibold text-green-600 hover:text-green-700"
+                        >
+                          Try again →
+                        </button>
                       )}
                     </div>
                     <div className="flex flex-col items-end space-y-2 shrink-0">
@@ -355,7 +433,8 @@ export default function HistoryPage() {
                     </div>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

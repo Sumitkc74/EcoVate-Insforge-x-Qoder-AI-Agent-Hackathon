@@ -52,11 +52,22 @@ function ResultsContent() {
     setImageUploadError(searchParams.get('imageUploadError'));
     setDetailWarning(searchParams.get('detailWarning'));
     setVisionFallback(searchParams.get('visionFallback'));
+    // Deep link from History / dashboard "Add DIY": open on the DIY tab.
+    if (searchParams.get('tab') === 'diy') {
+      setActiveTab('diy');
+    }
   }, [searchParams]);
 
   const handleDIYSelect = (diy: DIYIdea) => {
+    // Tapping only highlights the idea; the choice is recorded when
+    // the user taps Start Project or Upload later, so re-tapping
+    // ideas does not create a row per tap.
     setSelectedDIY(diy);
-    // Log DIY selection
+  };
+
+  // Record the chosen idea (with its title, packaging type and CO2
+  // estimate) so it can be resumed later from the dashboard or History.
+  const logSelection = (diy: DIYIdea) => {
     fetch('/api/actions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -64,12 +75,23 @@ function ResultsContent() {
       body: JSON.stringify({
         scanId,
         actionType: 'diy_selected',
+        projectTitle: diy.title,
+        packagingType: scanData?.packaging_type,
+        estimatedCo2Saved: diy.estimated_co2_saved_kg,
       }),
     }).catch(console.error);
   };
 
+  const handleSaveForLater = () => {
+    if (selectedDIY) {
+      logSelection(selectedDIY);
+      router.push('/dashboard');
+    }
+  };
+
   const handleStartProject = () => {
     if (selectedDIY && scanData) {
+      logSelection(selectedDIY);
       const queryParams = new URLSearchParams({
         scanId,
         projectTitle: selectedDIY.title,
@@ -339,12 +361,22 @@ function ResultsContent() {
                 ))}
 
                 {selectedDIY && (
-                  <button
-                    onClick={handleStartProject}
-                    className="w-full mt-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md"
-                  >
-                    I'll do this! Start Project
-                  </button>
+                  <div className="space-y-2 mt-4">
+                    <button
+                      onClick={handleStartProject}
+                      className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md"
+                    >
+                      I&apos;ll do this! Start Project
+                    </button>
+                    {!scanId.startsWith('temp_') && (
+                      <button
+                        onClick={handleSaveForLater}
+                        className="w-full bg-white border-2 border-gray-200 hover:border-green-400 text-gray-700 font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                      >
+                        Upload later
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             )}

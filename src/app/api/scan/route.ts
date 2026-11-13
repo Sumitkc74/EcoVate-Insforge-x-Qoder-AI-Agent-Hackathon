@@ -165,6 +165,12 @@ export async function POST(request: NextRequest) {
       const userEmail = typeof body.userEmail === 'string' && body.userEmail
         ? body.userEmail
         : `${userId}@ecovate.local`;
+      // ignoreDuplicates: a plain upsert overwrites EVERY column on
+      // conflict, so this used to reset sustainability_score to 0 on
+      // every scan — wiping points a user had already earned (e.g. the
+      // 35 merged legacy points). With ignoreDuplicates, an existing
+      // row is left untouched and the 0 score only applies to a
+      // brand-new user row.
       const { error: profileError } = await serverDb
         .from('users')
         .upsert([{
@@ -175,7 +181,7 @@ export async function POST(request: NextRequest) {
             : userEmail.split('@')[0],
           avatar: typeof body.userAvatar === 'string' ? body.userAvatar : null,
           sustainability_score: 0,
-        }], { onConflict: 'id' });
+        }], { onConflict: 'id', ignoreDuplicates: true });
       if (profileError) {
         profileErrorMsg = `${(profileError as { code?: string }).code || ''} ${(profileError as { message?: string }).message || String(profileError)}`.trim();
         console.error('Profile upsert error:', profileError);

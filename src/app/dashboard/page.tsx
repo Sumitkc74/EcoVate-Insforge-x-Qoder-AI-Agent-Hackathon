@@ -11,6 +11,13 @@ import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
+import {
+  getScanDiyState,
+  buildVerifyUrl,
+  openAddDiy,
+  type DiyActionLike,
+  type DiyScanLike,
+} from '@/lib/diy-continue';
 
 interface UserData {
   id: string;
@@ -34,6 +41,9 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
   const [leaderboardError, setLeaderboardError] = useState(false);
+  const [continueData, setContinueData] = useState<{ scans: DiyScanLike[]; actions: DiyActionLike[] } | null>(null);
+  const [addDiyId, setAddDiyId] = useState<string | null>(null);
+  const [diyError, setDiyError] = useState<string | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -65,6 +75,9 @@ export default function DashboardPage() {
         if (data.profile) {
           setUser(prev => prev ? { ...prev, sustainability_score: data.profile.sustainability_score || 0 } : null);
         }
+        if (Array.isArray(data.recentScans) && Array.isArray(data.recentActions)) {
+          setContinueData({ scans: data.recentScans, actions: data.recentActions });
+        }
       } catch (e) {
         console.error('Failed to fetch dashboard data:', e);
       }
@@ -88,6 +101,57 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   };
+
+  const handleAddDiy = async (scan: DiyScanLike) => {
+    setAddDiyId(scan.id);
+    setDiyError(null);
+    try {
+      await openAddDiy(router, scan);
+    } catch (e) {
+      setDiyError((e as Error).message);
+    } finally {
+      setAddDiyId(null);
+    }
+  };
+
+  // Scans to pick back up: a DIY chosen but not completed, or just
+  // scanned with no DIY yet. Most recent first, max 5.
+  const continueItems = (() => {
+    if (!continueData) return [];
+    const items: { key: string; scanId: string; title: string; subtitle: string; cta: string; onClick: () => void }[] = [];
+    for (const scan of continueData.scans) {
+      const diy = getScanDiyState(scan.id, continueData.actions);
+      if (diy.status === 'selected' && diy.selectedAction) {
+        const sel = diy.selectedAction;
+        items.push({
+          key: `chosen-${scan.id}`,
+          scanId: scan.id,
+          title: sel.project_title || scan.product_name,
+          subtitle: `From scan: ${scan.product_name} — DIY chosen, not completed yet`,
+          cta: 'Upload photo',
+          onClick: () => router.push(buildVerifyUrl({
+            scanId: scan.id,
+            projectTitle: sel.project_title || scan.product_name,
+            packagingType: sel.packaging_type,
+            estimatedCo2Saved: sel.estimated_co2_saved,
+          })),
+        });
+      }
+    }
+    for (const scan of continueData.scans) {
+      if (getScanDiyState(scan.id, continueData.actions).status === 'none') {
+        items.push({
+          key: `scanned-${scan.id}`,
+          scanId: scan.id,
+          title: scan.product_name,
+          subtitle: 'Just scanned — no DIY project yet',
+          cta: 'Add DIY',
+          onClick: () => handleAddDiy(scan),
+        });
+      }
+    }
+    return items.slice(0, 5);
+  })();
 
   if (isLoading) {
     return (
@@ -116,6 +180,34 @@ export default function DashboardPage() {
           <p className="text-5xl font-bold">{user?.sustainability_score || 0}</p>
           <p className="text-green-100 text-sm mt-2">points earned</p>
         </div>
+
+        {/* Continue where you left off */}
+        {continueItems.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Continue</h2>
+            <p className="text-sm text-gray-500 mb-4">Pick up a scan or finish a DIY project.</p>
+            {diyError && (
+              <p className="text-sm text-red-600 mb-3">Could not load DIY ideas: {diyError}</p>
+            )}
+            <div className="space-y-3">
+              {continueItems.map((item) => (
+                <div key={item.key} className="flex items-center space-x-3 rounded-xl bg-gray-50 px-3 py-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{item.title}</p>
+                    <p className="text-sm text-gray-500 truncate">{item.subtitle}</p>
+                  </div>
+                  <button
+                    onClick={item.onClick}
+                    disabled={item.cta === 'Add DIY' && addDiyId === item.scanId}
+                    className="shrink-0 text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+                  >
+                    {item.cta === 'Add DIY' && addDiyId === item.scanId ? 'Loading…' : item.cta}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Main Menu */}
         <div className="space-y-4">
