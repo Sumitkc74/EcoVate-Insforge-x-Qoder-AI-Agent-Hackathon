@@ -32,9 +32,6 @@ async function getDashboardData(userId: string) {
     console.error('Profile fetch error:', e);
   }
 
-  // Calculate score from actions as fallback
-  let calculatedScore = 0;
-
   // Get scan history
   let scans: unknown[] = [];
   let scanErrorMsg: string | null = null;
@@ -72,17 +69,32 @@ async function getDashboardData(userId: string) {
     console.error('Actions fetch error:', e);
   }
 
-  // Calculate stats
-  const typedActions = actions as Array<{ action_type: string; impact_score: number }>;
-  const totalScans = scans.length;
-  const completedProjects = typedActions.filter(a => a.action_type === 'diy_completed').length;
-  const totalImpact = typedActions.reduce((sum, a) => sum + (a.impact_score || 0), 0);
-  
-  // Use calculated score if profile score is 0
-  calculatedScore = totalImpact;
-  if (userProfile.sustainability_score === 0 && calculatedScore > 0) {
-    userProfile.sustainability_score = calculatedScore;
+  // The score is derived, never stored: add up every action's points
+  // from History. The 20 most recent actions above are only for
+  // display, so the sum uses its own un-limited fetch — otherwise a
+  // user with more than 20 actions would lose points from the total.
+  // Nothing here reads users.sustainability_score: that column is a
+  // stale cache (a scan once reset it to 0), and a number in it can
+  // exist with no history behind it.
+  let totalImpact = 0;
+  let completedProjects = 0;
+  try {
+    const { data: scoreRows, error: scoreError } = await serverDb
+      .from('user_actions')
+      .select('action_type, impact_score')
+      .eq('user_id', userId);
+    if (!scoreError && scoreRows) {
+      const scored = scoreRows as Array<{ action_type: string; impact_score: number }>;
+      totalImpact = scored.reduce((sum, a) => sum + (a.impact_score || 0), 0);
+      completedProjects = scored.filter(a => a.action_type === 'diy_completed').length;
+    }
+  } catch (e) {
+    console.error('Score sum error:', e);
   }
+
+  const totalScans = scans.length;
+  // The dashboard score and the History total are the same derived number.
+  userProfile.sustainability_score = totalImpact;
   
   // Estimate environmental impact
   const estimatedWaterSaved = totalScans * 2.5; // liters

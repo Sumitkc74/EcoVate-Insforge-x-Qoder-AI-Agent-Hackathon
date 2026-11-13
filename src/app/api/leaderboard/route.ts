@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
 
 interface LeaderboardUser {
   id: string;
@@ -24,16 +24,38 @@ interface LeaderboardUser {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get top users by sustainability score
-    const { data: topUsers, error } = await db
+    // Scores are derived, never stored: add up each user's History
+    // actions. The users.sustainability_score column is not read —
+    // it is a stale cache (a scan once reset it to 0) and a number
+    // in it can exist with no history behind it. The service client
+    // is needed here because the anon client cannot read other
+    // users' actions.
+    const { data: allUsers, error: usersError } = await serverDb
       .from('users')
-      .select('id, email, name, avatar, sustainability_score, created_at')
-      .order('sustainability_score', { ascending: false })
-      .limit(50);
+      .select('id, email, name, avatar, created_at')
+      .limit(100);
 
-    if (error) {
-      throw error;
+    if (usersError) {
+      throw usersError;
     }
+
+    const { data: allActions, error: actionsError } = await serverDb
+      .from('user_actions')
+      .select('user_id, impact_score');
+
+    if (actionsError) {
+      throw actionsError;
+    }
+
+    const pointsByUser = new Map<string, number>();
+    for (const action of (allActions || []) as Array<{ user_id: string; impact_score: number }>) {
+      pointsByUser.set(action.user_id, (pointsByUser.get(action.user_id) || 0) + (action.impact_score || 0));
+    }
+
+    const topUsers = (allUsers || []).map((user: { id: string; email: string | null; name: string; avatar: string; created_at: string }) => ({
+      ...user,
+      sustainability_score: pointsByUser.get(user.id) || 0,
+    }));
 
     // Merge duplicate rows for the same person by email.
     const merged = new Map<string, LeaderboardUser>();
