@@ -87,7 +87,9 @@ export default function DashboardPage() {
         const leaderboardResponse = await fetch('/api/leaderboard');
         const leaderboardData = await leaderboardResponse.json();
         if (leaderboardResponse.ok && leaderboardData.success && Array.isArray(leaderboardData.leaderboard)) {
-          setLeaderboard(leaderboardData.leaderboard.slice(0, 10));
+          // The API returns the top 20; the list below shows the top
+          // five and scrolls the rest.
+          setLeaderboard(leaderboardData.leaderboard);
         } else {
           setLeaderboardError(true);
         }
@@ -283,6 +285,10 @@ export default function DashboardPage() {
           ) : leaderboard.length === 0 ? (
             <p className="text-sm text-gray-500">No scores yet — complete a DIY project to be first.</p>
           ) : (
+            <div>
+              {/* Five rows fit in view (5 x 48px rows + gaps); more
+                  entries scroll inside the box. */}
+              <div className="max-h-72 overflow-y-auto pr-1">
             <ol className="space-y-3">
               {leaderboard.map((entry) => {
                 const isCurrentUser = user !== null && entry.id === user.id;
@@ -326,6 +332,11 @@ export default function DashboardPage() {
                 );
               })}
             </ol>
+              </div>
+              {leaderboard.length > 5 && (
+                <p className="text-xs text-gray-400 mt-3 text-center">Scroll for more</p>
+              )}
+            </div>
           )}
         </div>
 
