@@ -386,7 +386,9 @@ export default function ScanPage() {
       // Navigate to results page with scan data. Pass the save
       // diagnostic through when the scan was not saved, so the results
       // page can show the real database error instead of a false
-      // "saved" impression.
+      // "saved" impression. Also pass the photo-upload failure
+      // through, so the results page can warn that the photo will
+      // not show in History instead of silently showing a placeholder.
       const queryParams = new URLSearchParams({
         scanId: result.scanId || '',
         data: JSON.stringify(result.data),
@@ -394,6 +396,9 @@ export default function ScanPage() {
           saveError: result.saveError,
           version: result.version || '',
           scanSaved: String(result.scanSaved ?? false),
+        } : {}),
+        ...(result.imageUploadError ? {
+          imageUploadError: result.imageUploadError,
         } : {}),
       });
       

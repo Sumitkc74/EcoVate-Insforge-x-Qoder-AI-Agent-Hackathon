@@ -153,13 +153,30 @@ export async function POST(request: NextRequest) {
     let saved = true;
     let saveError: string | null = null;
     try {
-      const { error: insertError } = await serverDb.from('user_actions').insert([{
+      // Save the AI's reason (feedback) and the project title too, so
+      // History can show what was uploaded and why it failed instead
+      // of only "DIY Project" and a generic status line. These columns
+      // need the one-time SQL: ALTER TABLE public.user_actions ADD
+      // COLUMN IF NOT EXISTS feedback TEXT, ADD COLUMN IF NOT EXISTS
+      // project_title TEXT. Until that SQL is run, fall back to saving
+      // without them so the project still lands in History (just
+      // without the reason/title); the reason is then only visible on
+      // the verify result page itself.
+      const baseAction = {
         user_id: userId,
         scan_id: scanId,
         action_type: actionType,
         impact_score: impactScore,
         image_url: imageUrl,
-      }]);
+      };
+      let insertError = (await serverDb.from('user_actions').insert([{
+        ...baseAction,
+        feedback: verificationResult.feedback,
+        project_title: projectTitle,
+      }])).error;
+      if (insertError && /column|feedback|project_title/i.test(insertError.message)) {
+        insertError = (await serverDb.from('user_actions').insert([baseAction])).error;
+      }
       if (insertError) {
         saved = false;
         saveError = insertError.message;

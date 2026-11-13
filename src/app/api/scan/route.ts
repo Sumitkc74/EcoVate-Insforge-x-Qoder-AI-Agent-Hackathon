@@ -13,7 +13,7 @@ import { uploadImage } from '@/lib/storage';
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck1-free';
+export const SCAN_API_VERSION = 'imgcheck2-svcstorage';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -74,28 +74,36 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Convert base64 to file for storage upload
+    // Convert base64 to file for storage upload. The failure is
+    // returned in the response (imageUploadError) instead of only
+    // being logged server-side: previously the scan was saved with
+    // no photo and nothing told the user why History showed a
+    // placeholder.
     let imageUrl: string | null = null;
+    let imageUploadError: string | null = null;
     try {
       // Extract base64 data and mime type
       const base64Match = base64Image.match(/^data:(.*?);base64,(.*)$/);
       if (!base64Match) {
         throw new Error('Invalid base64 image format');
       }
-      
+
       const mimeType = base64Match[1] || 'image/jpeg';
       const base64Data = base64Match[2];
-      
+
       // Use Buffer for base64 decoding (works in Edge runtime)
       const byteArray = Buffer.from(base64Data, 'base64');
       const blob = new Blob([byteArray], { type: mimeType });
       const file = new File([blob], 'scan.jpg', { type: mimeType });
-      
+
       const { url, error: uploadError } = await uploadImage(file, `scans/${userId}`);
-      if (!uploadError) {
+      if (uploadError) {
+        imageUploadError = uploadError.message;
+      } else {
         imageUrl = url;
       }
     } catch (uploadErr) {
+      imageUploadError = (uploadErr as Error).message;
       console.error('Image upload error:', uploadErr);
       // Continue without image URL - non-critical error
     }
@@ -195,6 +203,8 @@ export async function POST(request: NextRequest) {
       scanSaved: scanId !== null && !scanId.startsWith('temp_'),
       saveError: dbErrorMsg,
       profileError: profileErrorMsg,
+      imageUrl,
+      imageUploadError,
     });
 
   } catch (error) {

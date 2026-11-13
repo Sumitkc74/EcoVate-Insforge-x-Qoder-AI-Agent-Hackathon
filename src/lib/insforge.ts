@@ -30,6 +30,16 @@ export const serverDb = createClient({
   anonKey: process.env.INSFORGE_SERVICE_KEY || INSFORGE_ANON_KEY,
 }).database;
 
+// Server-side storage client with the service key (bypasses storage
+// policies). Uploads happen from API routes only, so they must not
+// depend on the anon key or on storage RLS policies: with the anon
+// client every upload failed silently and History rows were saved
+// with no photo. Only use in API routes, never expose to client.
+export const serverStorage = createClient({
+  baseUrl: INSFORGE_URL,
+  anonKey: process.env.INSFORGE_SERVICE_KEY || INSFORGE_ANON_KEY,
+}).storage;
+
 // Type definitions for database tables
 export interface User {
   id: string;
@@ -59,6 +69,10 @@ export interface UserAction {
   impact_score: number;
   image_url: string | null;
   created_at: string;
+  // Verification feedback (the AI's reason) and the project title,
+  // saved by /api/verify. Null on older rows, which predate the columns.
+  feedback?: string | null;
+  project_title?: string | null;
 }
 
 // DIY Idea type for agent responses

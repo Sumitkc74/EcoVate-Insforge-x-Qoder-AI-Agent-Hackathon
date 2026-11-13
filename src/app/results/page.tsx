@@ -29,6 +29,7 @@ function ResultsContent() {
   const [selectedDIY, setSelectedDIY] = useState<DIYIdea | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiVersion, setApiVersion] = useState<string>('');
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     const dataParam = searchParams.get('data');
@@ -46,6 +47,7 @@ function ResultsContent() {
     }
     setSaveError(searchParams.get('saveError'));
     setApiVersion(searchParams.get('version') || '');
+    setImageUploadError(searchParams.get('imageUploadError'));
   }, [searchParams]);
 
   const handleDIYSelect = (diy: DIYIdea) => {
@@ -119,6 +121,12 @@ function ResultsContent() {
             <p className="text-sm font-semibold text-red-700">This scan was not saved to your history.</p>
             {saveError && <p className="text-sm text-red-600 mt-1">{saveError}</p>}
             {apiVersion && <p className="text-xs text-red-500 mt-1">Scan API: {apiVersion}</p>}
+          </div>
+        )}
+        {imageUploadError && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+            <p className="text-sm font-semibold text-amber-700">Your photo could not be uploaded, so it won&apos;t show in History.</p>
+            <p className="text-sm text-amber-600 mt-1">{imageUploadError}</p>
           </div>
         )}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">

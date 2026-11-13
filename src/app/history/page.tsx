@@ -27,6 +27,9 @@ interface UserAction {
   impact_score: number;
   image_url: string | null;
   created_at: string;
+  // Saved by /api/verify; null on older rows (predates the columns).
+  feedback?: string | null;
+  project_title?: string | null;
 }
 
 interface HistoryData {
@@ -316,6 +319,9 @@ export default function HistoryPage() {
                           </span>
                         )}
                       </div>
+                      {!scan.image_url && (
+                        <p className="text-xs text-gray-400 mt-2">Photo wasn&apos;t saved with this scan.</p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end space-y-2 shrink-0">
                       <span className="text-xs text-gray-400">
@@ -406,6 +412,14 @@ export default function HistoryPage() {
               allProjects.map((action) => {
                 const isPending = action.action_type === 'diy_pending';
                 const isFailed = action.action_type === 'diy_failed';
+                // What was uploaded: the project title saved at
+                // verification time, or the scanned product it came
+                // from. Older rows have neither, so they keep the
+                // generic title.
+                const linkedScan = action.scan_id
+                  ? data?.scans.find((s) => s.id === action.scan_id)
+                  : undefined;
+                const projectName = action.project_title || linkedScan?.product_name || 'DIY Project';
                 return (
                   <div key={action.id} className={`bg-white rounded-xl shadow-lg p-4 border-l-4 ${
                     isFailed ? 'border-red-400' : isPending ? 'border-amber-400' : 'border-green-500'
@@ -434,7 +448,7 @@ export default function HistoryPage() {
                       )}
                       <div className="flex-1">
                         <div className="flex items-center space-x-2">
-                          <h3 className="font-semibold text-gray-900">DIY Project</h3>
+                          <h3 className="font-semibold text-gray-900">{projectName}</h3>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
                             isFailed
                               ? 'bg-red-100 text-red-700'
@@ -448,15 +462,30 @@ export default function HistoryPage() {
                         <p className="text-sm text-gray-500">
                           {new Date(action.created_at).toLocaleDateString()}
                         </p>
+                        {action.project_title && linkedScan && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            From scan: {linkedScan.product_name}
+                          </p>
+                        )}
+                        {!action.image_url && (
+                          <p className="text-xs text-gray-400 mt-1">Photo wasn&apos;t saved with this project.</p>
+                        )}
                         {isFailed && (
                           <p className="text-xs text-red-600 mt-1">
-                            Not a completed project — no points earned
+                            {action.feedback
+                              ? `Not approved: ${action.feedback}`
+                              : 'Not a completed project — no points earned'}
                           </p>
                         )}
                         {isPending && (
                           <p className="text-xs text-amber-600 mt-1">
-                            Awaiting verification (need 85%+ confidence)
+                            {action.feedback
+                              ? action.feedback
+                              : 'Awaiting verification (need 85%+ confidence)'}
                           </p>
+                        )}
+                        {!isFailed && !isPending && action.feedback && (
+                          <p className="text-xs text-gray-500 mt-1">{action.feedback}</p>
                         )}
                       </div>
                       {!isPending && !isFailed && action.impact_score > 0 && (
