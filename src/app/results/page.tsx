@@ -8,8 +8,8 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { auth, type ScanResult, type DIYIdea } from '@/lib/insforge';
-import { authedFetch } from '@/lib/client-auth';
+import { type ScanResult, type DIYIdea } from '@/lib/insforge';
+import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 
 // Loading fallback
@@ -65,12 +65,12 @@ function ResultsContent() {
       setActiveTab('diy');
     }
     // Signed-in user for the header menu (name + Sign out dropdown).
-    auth.getCurrentUser().then(({ data }) => {
-      if (data?.user) {
+    getCurrentIdentity().then((identity) => {
+      if (identity) {
         setHeaderUser({
-          name: data.user.profile?.name || null,
-          email: data.user.email,
-          avatar: data.user.profile?.avatar_url || null,
+          name: identity.name,
+          email: identity.email,
+          avatar: identity.avatar,
         });
       }
     }).catch(() => {});

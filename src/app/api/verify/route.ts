@@ -93,12 +93,18 @@ export async function POST(request: NextRequest) {
       estimatedCo2Saved
     });
 
-    // Daily cap on verifications (30/day per user): each attempt
-    // burns AI quota, so a signed-in account cannot script unlimited
-    // verifications.
-    if (await overDailyCap(userId, 'user_actions', ['diy_completed', 'diy_pending', 'diy_failed'], 30)) {
+    // Daily cap on verifications: 30/day signed in, 2/day anonymous.
+    // Each attempt burns AI quota, so an account cannot script
+    // unlimited verifications.
+    const verifyCap = user.isAnonymous ? 2 : 30;
+    if (await overDailyCap(userId, 'user_actions', ['diy_completed', 'diy_pending', 'diy_failed'], verifyCap)) {
       return NextResponse.json(
-        { success: false, error: 'Daily verification limit reached (30). Try again tomorrow.' },
+        {
+          success: false,
+          error: user.isAnonymous
+            ? 'Daily verification limit reached (2 for guest accounts). Sign in with Google for 30 a day.'
+            : 'Daily verification limit reached (30). Try again tomorrow.',
+        },
         { status: 429 },
       );
     }

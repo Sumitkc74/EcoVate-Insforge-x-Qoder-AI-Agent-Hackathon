@@ -1,28 +1,120 @@
 /**
  * Client-side auth for API calls.
  *
- * The access token lives in the SDK's in-memory session and is not
- * exposed by getCurrentUser — but once the session is loaded, the
- * SDK's HTTP client carries it in its Authorization header. So this
- * helper first makes sure a session is loaded (getCurrentUser
- * refreshes it via the httpOnly cookie when needed), then reads the
- * token from the HTTP client. The token goes out as a Bearer header;
- * the user id is never sent in a body or query string anymore.
+ * Two kinds of session:
+ * - Google sign-in: the access token lives in the SDK's in-memory
+ *   session and is not exposed by getCurrentUser — but once the
+ *   session is loaded, the SDK's HTTP client carries it in its
+ *   Authorization header. So this helper first makes sure a session
+ *   is loaded (getCurrentUser refreshes it via the httpOnly cookie
+ *   when needed), then reads the token from the HTTP client.
+ * - Anonymous (guest): the server issues a signed token at
+ *   /api/anon-session, stored in localStorage. No Google account,
+ *   2 scans and 2 verifications a day, history in this browser only.
+ *
+ * The token goes out as a Bearer header; the user id is never sent
+ * in a body or query string anymore. When both exist, the Google
+ * session wins (a guest who later signs in uses the Google account).
  */
 
 import { auth, insforge } from './insforge';
 
-export async function getAccessToken(): Promise<string | null> {
+export interface AnonSession {
+  userId: string;
+  token: string;
+  name: string;
+}
+
+const ANON_STORAGE_KEY = 'ecovate_anon_session';
+
+export function readAnonSession(): AnonSession | null {
   try {
-    const { data } = await auth.getCurrentUser();
-    if (!data?.user) return null;
-    const headers = insforge.getHttpClient().getHeaders() as Record<string, string>;
-    const header = headers['Authorization'] || headers['authorization'];
-    if (!header?.startsWith('Bearer ')) return null;
-    return header.slice('Bearer '.length);
+    const raw = localStorage.getItem(ANON_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AnonSession>;
+    if (typeof parsed.userId !== 'string' || typeof parsed.token !== 'string') return null;
+    return { userId: parsed.userId, token: parsed.token, name: typeof parsed.name === 'string' ? parsed.name : 'Guest' };
   } catch {
     return null;
   }
+}
+
+export function saveAnonSession(session: AnonSession): void {
+  try {
+    localStorage.setItem(ANON_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // Private mode / storage full: the guest session just won't persist.
+  }
+}
+
+export function clearAnonSession(): void {
+  try {
+    localStorage.removeItem(ANON_STORAGE_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+// Keep the stored guest name in sync after a rename, so the header
+// shows the new name on the next page load too.
+export function updateAnonSessionName(name: string): void {
+  const session = readAnonSession();
+  if (session) saveAnonSession({ ...session, name });
+}
+
+export interface ClientIdentity {
+  id: string;
+  name: string | null;
+  email: string | null;
+  avatar: string | null;
+  isAnonymous: boolean;
+}
+
+// Whoever is using the app right now: Google user, or guest.
+export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
+  try {
+    const { data } = await auth.getCurrentUser();
+    if (data?.user) {
+      return {
+        id: data.user.id,
+        name: data.user.profile?.name || null,
+        email: data.user.email,
+        avatar: data.user.profile?.avatar_url || null,
+        isAnonymous: false,
+      };
+    }
+  } catch {
+    // No Google session — fall through to the guest session.
+  }
+  const anon = readAnonSession();
+  if (anon) {
+    return { id: anon.userId, name: anon.name, email: null, avatar: null, isAnonymous: true };
+  }
+  return null;
+}
+
+export async function getAccessToken(): Promise<string | null> {
+  try {
+    const { data } = await auth.getCurrentUser();
+    if (data?.user) {
+      const headers = insforge.getHttpClient().getHeaders() as Record<string, string>;
+      const header = headers['Authorization'] || headers['authorization'];
+      if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length);
+    }
+  } catch {
+    // No Google session — fall through to the guest session.
+  }
+  return readAnonSession()?.token ?? null;
+}
+
+// Signs out of Google (when signed in) and clears the guest session.
+export async function signOutAll(): Promise<void> {
+  try {
+    await auth.signOut();
+  } catch {
+    // Already signed out.
+  }
+  clearAnonSession();
 }
 
 async function authHeaders(): Promise<Record<string, string>> {

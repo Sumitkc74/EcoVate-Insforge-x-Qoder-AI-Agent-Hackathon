@@ -43,11 +43,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
 
-    // Daily cap on scans (30/day per user): each scan burns AI quota,
-    // so a signed-in account cannot script unlimited scans.
-    if (await overDailyCap(userId, 'scans', null, 30)) {
+    // Daily cap on scans: 30/day signed in, 2/day anonymous. Each
+    // scan burns AI quota, so an account cannot script unlimited scans.
+    const scanCap = user.isAnonymous ? 2 : 30;
+    if (await overDailyCap(userId, 'scans', null, scanCap)) {
       return NextResponse.json(
-        { success: false, error: 'Daily scan limit reached (30). Try again tomorrow.' },
+        {
+          success: false,
+          error: user.isAnonymous
+            ? 'Daily scan limit reached (2 for guest accounts). Sign in with Google for 30 a day.'
+            : 'Daily scan limit reached (30). Try again tomorrow.',
+        },
         { status: 429 },
       );
     }
@@ -184,7 +190,9 @@ export async function POST(request: NextRequest) {
         .upsert([{
           id: userId,
           email: userEmail,
-          name: user.name || userEmail.split('@')[0],
+          // Anonymous accounts have no email to derive a name from,
+          // so they fall back to 'Guest' (or the name they chose).
+          name: user.name || (user.isAnonymous ? 'Guest' : userEmail.split('@')[0]),
           avatar: user.avatar,
           sustainability_score: 0,
         }], { onConflict: 'id', ignoreDuplicates: true });

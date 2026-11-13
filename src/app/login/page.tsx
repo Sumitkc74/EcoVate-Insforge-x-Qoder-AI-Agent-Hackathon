@@ -7,11 +7,16 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { signInWithGoogle } from '@/lib/auth';
+import { saveAnonSession } from '@/lib/client-auth';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guestName, setGuestName] = useState('');
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
@@ -27,6 +32,31 @@ export default function LoginPage() {
       setError('Failed to initiate sign in');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Continue without an account: the server issues a signed guest
+  // token (2 scans and 2 verifications a day). The name is what
+  // shows on the leaderboard.
+  const handleGuestSignIn = async () => {
+    setIsGuestLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/anon-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: guestName }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.token) {
+        throw new Error(result.error || 'Could not start a guest session');
+      }
+      saveAnonSession({ userId: result.userId, token: result.token, name: result.name });
+      router.push('/dashboard');
+    } catch (err) {
+      setError((err as Error).message || 'Could not start a guest session');
+    } finally {
+      setIsGuestLoading(false);
     }
   };
 
@@ -123,6 +153,40 @@ export default function LoginPage() {
             </>
           )}
         </button>
+
+        {/* Continue without an account */}
+        <div className="flex items-center gap-3 my-6">
+          <div className="h-px bg-gray-200 flex-1" />
+          <span className="text-xs text-gray-400 font-medium">or</span>
+          <div className="h-px bg-gray-200 flex-1" />
+        </div>
+
+        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="guest-name">
+          Name for the leaderboard <span className="font-normal text-gray-400">(optional)</span>
+        </label>
+        <input
+          id="guest-name"
+          type="text"
+          value={guestName}
+          onChange={(e) => setGuestName(e.target.value)}
+          maxLength={40}
+          placeholder="e.g. Alex"
+          className="w-full border-2 border-gray-200 rounded-xl py-3 px-4 text-gray-900 placeholder-gray-400 focus:border-green-500 focus:outline-none mb-3"
+        />
+        <button
+          onClick={handleGuestSignIn}
+          disabled={isGuestLoading}
+          className="w-full flex items-center justify-center space-x-3 bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isGuestLoading ? (
+            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <span>Continue without signing in</span>
+          )}
+        </button>
+        <p className="mt-3 text-center text-xs text-gray-500">
+          Guests get 2 scans and 2 verifications a day, in this browser only. Sign in with Google for 30 a day and to keep your history.
+        </p>
 
         <p className="mt-6 text-center text-xs text-gray-500">
           By signing in, you agree to our Terms of Service and Privacy Policy

@@ -9,8 +9,7 @@
 
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { auth } from '@/lib/insforge';
-import { authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 import { openAddDiy } from '@/lib/diy-continue';
 
@@ -62,12 +61,12 @@ function VerifyContent() {
     const co2 = parseFloat(searchParams.get('estimatedCo2Saved') || '0.5');
     setEstimatedCo2Saved(co2);
     // Signed-in user for the header menu (name + Sign out dropdown).
-    auth.getCurrentUser().then(({ data }) => {
-      if (data?.user) {
+    getCurrentIdentity().then((identity) => {
+      if (identity) {
         setHeaderUser({
-          name: data.user.profile?.name || null,
-          email: data.user.email,
-          avatar: data.user.profile?.avatar_url || null,
+          name: identity.name,
+          email: identity.email,
+          avatar: identity.avatar,
         });
       }
     }).catch(() => {});
@@ -119,9 +118,10 @@ function VerifyContent() {
     setError(null);
 
     try {
-      // Get current user for authentication
-      const { data: userData, error: userError } = await auth.getCurrentUser();
-      if (userError || !userData?.user) {
+      // The caller must be signed in (Google or guest) — the token
+      // goes out in the header via authedFetch below.
+      const identity = await getCurrentIdentity();
+      if (!identity) {
         throw new Error('Please log in again');
       }
 

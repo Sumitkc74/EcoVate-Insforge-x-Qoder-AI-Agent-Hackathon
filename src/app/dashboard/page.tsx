@@ -8,8 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth } from '@/lib/insforge';
-import { authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch, updateAnonSessionName } from '@/lib/client-auth';
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
 import {
@@ -26,6 +25,7 @@ interface UserData {
   name: string | null;
   avatar: string | null;
   sustainability_score: number;
+  isAnonymous: boolean;
 }
 
 interface LeaderboardEntry {
@@ -45,6 +45,11 @@ export default function DashboardPage() {
   const [continueData, setContinueData] = useState<{ scans: DiyScanLike[]; actions: DiyActionLike[] } | null>(null);
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
+  // Guest display name editor (anonymous accounts only).
+  const [displayName, setDisplayName] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   // The signed-in user's own leaderboard row, so their rank stays
   // visible even when the list scrolls past it.
@@ -59,18 +64,21 @@ export default function DashboardPage() {
 
   const checkAuth = async () => {
     try {
-      const { data: userData, error } = await auth.getCurrentUser();
-      if (error || !userData?.user) {
+      // Google users and guests both land here.
+      const identity = await getCurrentIdentity();
+      if (!identity) {
         router.push('/login');
         return;
       }
       setUser({
-        id: userData.user.id,
-        email: userData.user.email,
-        name: userData.user.profile?.name || null,
-        avatar: userData.user.profile?.avatar_url || null,
+        id: identity.id,
+        email: identity.email || '',
+        name: identity.name,
+        avatar: identity.avatar,
         sustainability_score: 0,
+        isAnonymous: identity.isAnonymous,
       });
+      if (identity.isAnonymous) setDisplayName(identity.name || 'Guest');
       
       // Fetch user score from database. The session token goes in the
       // header — the user id is never sent in the body anymore.
@@ -108,6 +116,31 @@ export default function DashboardPage() {
       router.push('/login');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Save a new leaderboard name for a guest account.
+  const handleSaveName = async () => {
+    if (!user?.isAnonymous) return;
+    setIsSavingName(true);
+    setNameError(null);
+    setNameSaved(false);
+    try {
+      const response = await authedFetch('/api/anon-name', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: displayName }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not save the name');
+      setUser((prev) => (prev ? { ...prev, name: result.name } : prev));
+      setDisplayName(result.name);
+      updateAnonSessionName(result.name);
+      setNameSaved(true);
+    } catch (e) {
+      setNameError((e as Error).message);
+    } finally {
+      setIsSavingName(false);
     }
   };
 
@@ -188,6 +221,35 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="max-w-md mx-auto px-4 py-6 space-y-6">
+        {/* Guest account: leaderboard name editor + the guest limits. */}
+        {user?.isAnonymous && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Guest account</h2>
+            <p className="text-sm text-gray-500 mb-3">
+              You&apos;re using EcoVate without an account — 2 scans and 2 verifications a day, in this browser only. Your leaderboard name:
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                maxLength={40}
+                aria-label="Leaderboard name"
+                className="flex-1 min-w-0 border-2 border-gray-200 rounded-xl py-2 px-3 text-gray-900 focus:border-green-500 focus:outline-none"
+              />
+              <button
+                onClick={handleSaveName}
+                disabled={isSavingName}
+                className="shrink-0 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-50"
+              >
+                {isSavingName ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            {nameSaved && <p className="text-sm text-green-600 mt-2">Saved.</p>}
+            {nameError && <p className="text-sm text-red-600 mt-2">{nameError}</p>}
+          </div>
+        )}
+
         {/* Score Card */}
         <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-lg p-6 text-white text-center">
           <p className="text-green-100 text-sm mb-1">Your Sustainability Score</p>

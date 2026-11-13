@@ -37,10 +37,92 @@ export interface AuthedUser {
   email: string | null;
   name: string | null;
   avatar: string | null;
+  // Anonymous accounts (see below) get the tight caps instead of the
+  // signed-in ones.
+  isAnonymous: boolean;
+}
+
+// Display names for the leaderboard: trimmed, at most 40 chars,
+// control characters stripped. Empty input becomes 'Guest'.
+export function normalizeDisplayName(input: unknown): string {
+  const raw = typeof input === 'string' ? input : '';
+  const cleaned = raw.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 40);
+  return cleaned || 'Guest';
+}
+
+// Anonymous sessions: the Insforge SDK has no anonymous sign-in, so
+// the server issues anonymous identities itself. The token is
+// `anon_<userId>_<hex signature>` where the signature is
+// HMAC-SHA256(service key, `anon:<userId>`). Only the server knows
+// the key, so the token cannot be forged; the user id in it is the
+// anonymous account's id in public.users. The token lives in the
+// browser's localStorage, so clearing site data loses the identity —
+// and with it the anonymous history. (A fresh identity also resets
+// the daily cap; that is the honest limit of anonymous access without
+// a per-IP store.)
+const ANON_TOKEN_PREFIX = 'anon_';
+
+async function getAnonKey(): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(process.env.INSFORGE_SERVICE_KEY || ''),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify'],
+  );
+}
+
+export async function createAnonToken(userId: string): Promise<string> {
+  const key = await getAnonKey();
+  const sig = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`anon:${userId}`),
+  );
+  const sigHex = [...new Uint8Array(sig)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `${ANON_TOKEN_PREFIX}${userId}_${sigHex}`;
+}
+
+async function validateAnonToken(token: string): Promise<AuthedUser | null> {
+  assertServiceKey();
+  const rest = token.slice(ANON_TOKEN_PREFIX.length);
+  const sep = rest.lastIndexOf('_');
+  if (sep <= 0) return null;
+  const userId = rest.slice(0, sep);
+  const sigHex = rest.slice(sep + 1);
+  if (!/^[0-9a-f]{64}$/.test(sigHex)) return null;
+  try {
+    const sigBytes = new Uint8Array(
+      sigHex.match(/.{2}/g)!.map((h) => parseInt(h, 16)),
+    );
+    const key = await getAnonKey();
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      sigBytes,
+      new TextEncoder().encode(`anon:${userId}`),
+    );
+    if (!valid) return null;
+  } catch {
+    return null;
+  }
+  // The display name comes from the users row (set at creation,
+  // changeable later via /api/anon-name).
+  const { data: profile } = await serverDb
+    .from('users')
+    .select('name')
+    .eq('id', userId)
+    .single();
+  const name = (profile as { name?: string | null } | null)?.name ?? 'Guest';
+  return { id: userId, email: null, name, avatar: null, isAnonymous: true };
 }
 
 // Validate the Bearer token from the request and return the user it
 // belongs to, or null when the token is missing, invalid or expired.
+// Two token kinds: Insforge access tokens (checked against the
+// backend, as before) and anonymous tokens (checked locally above).
 // (The service-key check is separate — routes that use the service
 // client call assertServiceKey() first; routes that only validate a
 // token, like /api/material-guess, do not need the service key.)
@@ -48,6 +130,7 @@ export async function requireUser(request: NextRequest): Promise<AuthedUser | nu
   const header = request.headers.get('authorization');
   const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
   if (!token) return null;
+  if (token.startsWith(ANON_TOKEN_PREFIX)) return validateAnonToken(token);
   try {
     const res = await fetch(`${INSFORGE_URL}/api/auth/sessions/current`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -62,6 +145,7 @@ export async function requireUser(request: NextRequest): Promise<AuthedUser | nu
       email: typeof user.email === 'string' ? user.email : null,
       name: user.profile?.name ?? null,
       avatar: user.profile?.avatar_url ?? null,
+      isAnonymous: false,
     };
   } catch {
     return null;

@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signOut } from '@/lib/auth';
+import { signOutAll } from '@/lib/client-auth';
 
 export interface MenuUser {
   name: string | null;
@@ -25,7 +25,8 @@ export default function UserMenu({ user, showEmail = false }: { user: MenuUser |
   const displayName = user.name || user.email || 'User';
 
   const handleSignOut = async () => {
-    await signOut();
+    // Signs out of Google and clears a guest session, if any.
+    await signOutAll();
     router.push('/login');
   };
 

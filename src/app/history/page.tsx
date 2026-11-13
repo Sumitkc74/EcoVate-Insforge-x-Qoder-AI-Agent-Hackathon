@@ -8,8 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth } from '@/lib/insforge';
-import { authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
 import { getScanDiyState, buildVerifyUrl, openAddDiy } from '@/lib/diy-continue';
 
 interface Scan {
@@ -64,8 +63,8 @@ export default function HistoryPage() {
 
   const fetchHistory = async () => {
     try {
-      const { data: userData, error } = await auth.getCurrentUser();
-      if (error || !userData?.user) {
+      const identity = await getCurrentIdentity();
+      if (!identity) {
         router.push('/login');
         return;
       }
@@ -89,8 +88,8 @@ export default function HistoryPage() {
 
   const handleDelete = async (type: 'scan' | 'project', id: string) => {
     try {
-      const { data: userData, error } = await auth.getCurrentUser();
-      if (error || !userData?.user) {
+      const identity = await getCurrentIdentity();
+      if (!identity) {
         router.push('/login');
         return;
       }
@@ -137,8 +136,8 @@ export default function HistoryPage() {
 
   const handleDeleteAll = async (scope: 'scans' | 'projects') => {
     try {
-      const { data: userData, error } = await auth.getCurrentUser();
-      if (error || !userData?.user) {
+      const identity = await getCurrentIdentity();
+      if (!identity) {
         router.push('/login');
         return;
       }
