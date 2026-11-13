@@ -667,6 +667,13 @@ export default function ScanPage() {
               className="hidden"
             />
 
+            {/* Photo privacy disclaimer */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-xs text-amber-800">
+                Photo privacy: photos you upload are stored in a public bucket and can be viewed by anyone with the link. Please avoid photos showing people, personal information, or the inside of your home.
+              </p>
+            </div>
+
             {/* Tips */}
             <div className="bg-blue-50 rounded-xl p-4">
               <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
