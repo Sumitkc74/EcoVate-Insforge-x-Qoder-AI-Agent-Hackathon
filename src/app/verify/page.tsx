@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import { authedFetch } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 import { openAddDiy } from '@/lib/diy-continue';
 
@@ -32,7 +33,6 @@ function VerifyContent() {
   const [projectTitle, setProjectTitle] = useState('');
   const [packagingType, setPackagingType] = useState('');
   const [estimatedCo2Saved, setEstimatedCo2Saved] = useState(0.5);
-  const [userId, setUserId] = useState('');
   const [choosingAgain, setChoosingAgain] = useState(false);
   // Signed-in user for the header menu (name + Sign out dropdown).
   const [headerUser, setHeaderUser] = useState<{
@@ -61,10 +61,9 @@ function VerifyContent() {
     setPackagingType(searchParams.get('packagingType') || '');
     const co2 = parseFloat(searchParams.get('estimatedCo2Saved') || '0.5');
     setEstimatedCo2Saved(co2);
-    // Needed for "Choose a different DIY" (the API takes userId).
+    // Signed-in user for the header menu (name + Sign out dropdown).
     auth.getCurrentUser().then(({ data }) => {
       if (data?.user) {
-        setUserId(data.user.id);
         setHeaderUser({
           name: data.user.profile?.name || null,
           email: data.user.email,
@@ -76,11 +75,11 @@ function VerifyContent() {
 
   // Back to the DIY options for this scan to pick a different idea.
   const handleChooseAgain = async () => {
-    if (!scanId || !userId) return;
+    if (!scanId) return;
     setChoosingAgain(true);
     setError(null);
     try {
-      await openAddDiy(router, scanId, userId);
+      await openAddDiy(router, scanId);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -132,9 +131,8 @@ function VerifyContent() {
       formData.append('projectTitle', projectTitle);
       formData.append('packagingType', packagingType);
       formData.append('estimatedCo2Saved', String(estimatedCo2Saved));
-      formData.append('userId', userData.user.id);
 
-      const response = await fetch('/api/verify', {
+      const response = await authedFetch('/api/verify', {
         method: 'POST',
         body: formData,
       });
@@ -232,7 +230,7 @@ function VerifyContent() {
               </button>
               <button
                 onClick={handleChooseAgain}
-                disabled={choosingAgain || !userId}
+                disabled={choosingAgain}
                 className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
               >
                 {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
@@ -375,7 +373,7 @@ function VerifyContent() {
           </button>
           <button
             onClick={handleChooseAgain}
-            disabled={choosingAgain || !userId}
+            disabled={choosingAgain}
             className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
           >
             {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}

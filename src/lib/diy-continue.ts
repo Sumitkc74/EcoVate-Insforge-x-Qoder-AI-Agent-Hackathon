@@ -17,6 +17,7 @@
  */
 
 import type { DIYIdea, ScanResult } from './insforge';
+import { authedFetch } from './client-auth';
 
 export interface DiyActionLike {
   id: string;
@@ -89,12 +90,13 @@ export function buildVerifyUrl(args: {
 // "Add DIY" / "Choose again" for a saved scan: fetch fresh ideas for
 // it and open the results page on the DIY tab. The scan's stored
 // fields come back from the API, so callers only need the scan id.
+// The session token goes in the header — the user id is never in
+// the URL anymore.
 export async function openAddDiy(
   router: { push: (url: string) => void },
   scanId: string,
-  userId: string,
 ): Promise<void> {
-  const response = await fetch(`/api/diy-ideas?scanId=${encodeURIComponent(scanId)}&userId=${encodeURIComponent(userId)}`);
+  const response = await authedFetch(`/api/diy-ideas?scanId=${encodeURIComponent(scanId)}`);
   const result = await response.json();
   if (!response.ok || !result.success) {
     throw new Error(result.error || 'Could not load DIY ideas for this scan');

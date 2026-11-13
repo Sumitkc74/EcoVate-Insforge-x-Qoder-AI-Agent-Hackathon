@@ -12,11 +12,29 @@ import { serverStorage } from './insforge';
 const BUCKET_NAME = 'user-uploads';
 const INSFORGE_URL = process.env.NEXT_PUBLIC_INSFORGE_URL || 'https://8t37jscx.us-west.insforge.app';
 
+// Only real photo types are accepted, and the extension comes from
+// the validated MIME type — never from the client-supplied file name.
+// Names are random UUIDs: the old `scans/<userId>/<timestamp>.jpg`
+// pattern was predictable, and user ids are public via the
+// leaderboard, so anyone could guess another user's photo URLs.
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
 // Upload image to storage bucket
 export async function uploadImage(file: File, path: string): Promise<{ url: string | null; key: string | null; error: Error | null }> {
   try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${path}/${Date.now()}.${fileExt}`;
+    const fileExt = ALLOWED_IMAGE_TYPES[file.type];
+    if (!fileExt) {
+      return { url: null, key: null, error: new Error('Only JPEG, PNG and WebP photos are accepted') };
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      return { url: null, key: null, error: new Error('Photo is too large (max 5 MB)') };
+    }
+    const fileName = `${path}/${crypto.randomUUID()}.${fileExt}`;
 
     const { data, error } = await serverStorage
       .from(BUCKET_NAME)

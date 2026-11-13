@@ -9,6 +9,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import { authedFetch } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 
 export default function ScanPage() {
@@ -282,7 +283,7 @@ export default function ScanPage() {
           reader.onerror = () => reject(new Error('Could not read image'));
           reader.readAsDataURL(selectedFile);
         });
-        const response = await fetch('/api/material-guess', {
+        const response = await authedFetch('/api/material-guess', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: base64Image }),
@@ -378,24 +379,20 @@ export default function ScanPage() {
       reader.readAsDataURL(selectedFile);
       const base64Image = await base64Promise;
 
-      // Call the scan API with user ID. Manual details are sent only when
-      // both product name and packaging type are filled in; otherwise the
-      // server tries AI vision first.
+      // Call the scan API. The session token goes in the header — the
+      // user id and profile fields are never sent in the body anymore;
+      // the server takes the identity from the validated token.
+      // Manual details are sent only when both product name and
+      // packaging type are filled in; otherwise the server tries AI
+      // vision first.
       const manualReady = productName.trim() !== '' && packagingType !== '';
-      const response = await fetch('/api/scan', {
+      const response = await authedFetch('/api/scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           image: base64Image,
-          userId: userData.user.id,
-          // Needed so the server can create the public.users row that
-          // scans.user_id references; without it the scan insert fails
-          // on the foreign key and history stays empty.
-          userEmail: userData.user.email,
-          userName: (userData.user as { profile?: { name?: string } }).profile?.name,
-          userAvatar: (userData.user as { profile?: { avatar_url?: string } }).profile?.avatar_url,
           ...(manualReady ? {
             product_name: productName.trim(),
             packaging_type: packagingType,

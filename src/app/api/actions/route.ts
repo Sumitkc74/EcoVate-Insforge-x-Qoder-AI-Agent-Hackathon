@@ -1,24 +1,50 @@
 /**
  * POST /api/actions
- * 
- * Log user actions (diy_selected, etc.)
+ *
+ * Log a chosen DIY idea (diy_selected) for the signed-in user, so it
+ * can be resumed later from the dashboard or History. The caller is
+ * authenticated by session token (see lib/server-auth); the user id
+ * comes from the validated token, never the body. Only the chosen-idea
+ * action is accepted here — points are only ever awarded by
+ * /api/verify after the AI approves the photo.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from '@/lib/insforge';
+import {
+  requireUser,
+  unauthorizedResponse,
+  handleRouteError,
+} from '@/lib/server-auth';
 
 export async function POST(request: NextRequest) {
   try {
-    // The user id comes in the body, like /api/dashboard, /api/scan
-    // and /api/verify already do: the session lives client-side, so a
-    // server-side auth.getCurrentUser() here has nothing to read and
-    // fails even for a signed-in user — which silently broke saving a
-    // chosen DIY idea ("Upload later" saved nothing).
-    const body = await request.json();
-    const { scanId, actionType, projectTitle, packagingType, estimatedCo2Saved, userId } = body;
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    const userId = user.id;
 
-    if (!scanId || !actionType || !userId) {
+    const body = await request.json();
+    const { scanId, actionType, projectTitle, packagingType, estimatedCo2Saved } = body;
+
+    if (!scanId || actionType !== 'diy_selected') {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Temp ids are scans that were never saved — nothing can be
+    // logged against them — and the scan must belong to the caller.
+    if (typeof scanId === 'string' && scanId.startsWith('temp_')) {
+      return NextResponse.json({ error: 'Scan was not saved' }, { status: 400 });
+    }
+    const { data: scan } = await serverDb
+      .from('scans')
+      .select('user_id')
+      .eq('id', scanId)
+      .single();
+    if (!scan) {
+      return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
+    }
+    if ((scan as { user_id: string }).user_id !== userId) {
+      return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
     }
 
     // A diy_selected row records the chosen idea so it can be resumed
@@ -65,11 +91,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, action: data });
 
   } catch (error) {
-    console.error('Actions API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'Actions API error:');
   }
 }
 

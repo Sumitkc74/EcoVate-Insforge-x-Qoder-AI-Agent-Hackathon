@@ -7,9 +7,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runCoordinatorAgent } from '@/lib/agents';
-import { serverDb, auth } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
 import { uploadImage } from '@/lib/storage';
 import { checkDetailsAgainstPhoto, DETAIL_MISMATCH_CONFIDENCE } from '@/lib/detail-check';
+import {
+  assertServiceKey,
+  requireUser,
+  overDailyCap,
+  unauthorizedResponse,
+  handleRouteError,
+} from '@/lib/server-auth';
 
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
@@ -22,28 +29,27 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    // Parse JSON body first to get userId
+    // Auth first: the user id comes from the validated session token,
+    // never the body — anyone could pass any id from the leaderboard.
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    const userId = user.id;
+
     const body = await request.json();
     const base64Image = body.image as string;
-    const bodyUserId = body.userId as string;
-    
-    // Verify authentication - accept userId from body (sent from authenticated frontend)
-    let userId: string | null = bodyUserId || null;
-    
-    // Also try to verify with cookie as backup
-    if (!userId) {
-      const { data: userData } = await auth.getCurrentUser();
-      if (userData?.user) {
-        userId = userData.user.id;
-      }
-    }
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
 
     if (!base64Image) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
+    }
+
+    // Daily cap on scans (30/day per user): each scan burns AI quota,
+    // so a signed-in account cannot script unlimited scans.
+    if (await overDailyCap(userId, 'scans', null, 30)) {
+      return NextResponse.json(
+        { success: false, error: 'Daily scan limit reached (30). Try again tomorrow.' },
+        { status: 429 },
+      );
     }
 
     // Optional manual details: when product name + packaging type are
@@ -162,9 +168,11 @@ export async function POST(request: NextRequest) {
     // scan insert fails on the foreign key and history stays empty,
     // even with the server-side client that bypasses RLS.
     try {
-      const userEmail = typeof body.userEmail === 'string' && body.userEmail
-        ? body.userEmail
-        : `${userId}@ecovate.local`;
+      // Identity comes from the validated session, never the body:
+      // the old code took name/email/avatar from the request, so
+      // anyone could rewrite any user's profile row by scanning as
+      // them.
+      const userEmail = user.email || `${userId}@ecovate.local`;
       // ignoreDuplicates: a plain upsert overwrites EVERY column on
       // conflict, so this used to reset sustainability_score to 0 on
       // every scan — wiping points a user had already earned (e.g. the
@@ -176,18 +184,16 @@ export async function POST(request: NextRequest) {
         .upsert([{
           id: userId,
           email: userEmail,
-          name: typeof body.userName === 'string' && body.userName
-            ? body.userName
-            : userEmail.split('@')[0],
-          avatar: typeof body.userAvatar === 'string' ? body.userAvatar : null,
+          name: user.name || userEmail.split('@')[0],
+          avatar: user.avatar,
           sustainability_score: 0,
         }], { onConflict: 'id', ignoreDuplicates: true });
       if (profileError) {
-        profileErrorMsg = `${(profileError as { code?: string }).code || ''} ${(profileError as { message?: string }).message || String(profileError)}`.trim();
+        profileErrorMsg = 'Profile could not be saved.';
         console.error('Profile upsert error:', profileError);
       }
     } catch (profileErr) {
-      profileErrorMsg = (profileErr as Error).message;
+      profileErrorMsg = 'Profile could not be saved.';
       console.error('Profile upsert exception:', profileErr);
     }
 
@@ -211,13 +217,13 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (dbError) {
-        dbErrorMsg = `${(dbError as { code?: string }).code || ''} ${(dbError as { message?: string }).message || String(dbError)}`.trim();
+        dbErrorMsg = 'Scan could not be saved to History.';
         console.error('Database error:', dbError);
       } else if (scanRecord) {
         scanId = scanRecord.id;
       }
     } catch (dbErr) {
-      dbErrorMsg = (dbErr as Error).message;
+      dbErrorMsg = 'Scan could not be saved to History.';
       console.error('Database insert error:', dbErr);
     }
 
@@ -256,11 +262,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Scan API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'Scan API error:');
   }
 }
 

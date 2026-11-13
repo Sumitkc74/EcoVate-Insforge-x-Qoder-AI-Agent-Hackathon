@@ -9,6 +9,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { auth, type ScanResult, type DIYIdea } from '@/lib/insforge';
+import { authedFetch } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 
 // Loading fallback
@@ -28,7 +29,6 @@ function ResultsContent() {
   const [scanData, setScanData] = useState<ScanResult | null>(null);
   const [scanId, setScanId] = useState<string>('');
   const [selectedDIY, setSelectedDIY] = useState<DIYIdea | null>(null);
-  const [userId, setUserId] = useState<string>('');
   // Signed-in user for the header menu (name + Sign out dropdown).
   const [headerUser, setHeaderUser] = useState<{
     name: string | null;
@@ -64,11 +64,9 @@ function ResultsContent() {
     if (searchParams.get('tab') === 'diy') {
       setActiveTab('diy');
     }
-    // The user id is needed to save a chosen idea (the API takes it
-    // in the body — the session lives client-side).
+    // Signed-in user for the header menu (name + Sign out dropdown).
     auth.getCurrentUser().then(({ data }) => {
       if (data?.user) {
-        setUserId(data.user.id);
         setHeaderUser({
           name: data.user.profile?.name || null,
           email: data.user.email,
@@ -87,33 +85,32 @@ function ResultsContent() {
 
   // Record the chosen idea (with its title, packaging type and CO2
   // estimate) so it can be resumed later from the dashboard or History.
-  const logSelection = (diy: DIYIdea) => {
-    if (!userId) return;
-    fetch('/api/actions', {
+  // Awaited by the handlers below: /api/verify reads the CO2 number
+  // back from this saved row, so the row must exist before navigating.
+  const logSelection = async (diy: DIYIdea): Promise<void> => {
+    await authedFetch('/api/actions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({
         scanId,
         actionType: 'diy_selected',
         projectTitle: diy.title,
         packagingType: scanData?.packaging_type,
         estimatedCo2Saved: diy.estimated_co2_saved_kg,
-        userId,
       }),
     }).catch(console.error);
   };
 
-  const handleSaveForLater = () => {
+  const handleSaveForLater = async () => {
     if (selectedDIY) {
-      logSelection(selectedDIY);
+      await logSelection(selectedDIY);
       router.push('/dashboard');
     }
   };
 
-  const handleStartProject = () => {
+  const handleStartProject = async () => {
     if (selectedDIY && scanData) {
-      logSelection(selectedDIY);
+      await logSelection(selectedDIY);
       const queryParams = new URLSearchParams({
         scanId,
         projectTitle: selectedDIY.title,

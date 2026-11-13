@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from '@/lib/insforge';
+import { assertServiceKey, handleRouteError } from '@/lib/server-auth';
 
 interface LeaderboardUser {
   id: string;
@@ -24,6 +25,11 @@ interface LeaderboardUser {
 
 export async function GET(request: NextRequest) {
   try {
+    // Public by design (names and scores only — emails are stripped
+    // below), but the service client is still needed to read other
+    // users' actions, so a missing service key is a 503, not a
+    // silent empty board.
+    assertServiceKey();
     // Scores are derived, never stored: add up each user's History
     // actions. The users.sustainability_score column is not read —
     // it is a stale cache (a scan once reset it to 0) and a number
@@ -95,11 +101,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Leaderboard API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'Leaderboard API error:');
   }
 }
 

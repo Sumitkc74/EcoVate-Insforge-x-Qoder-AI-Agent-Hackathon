@@ -5,7 +5,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, auth } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
+import {
+  assertServiceKey,
+  requireUser,
+  unauthorizedResponse,
+  handleRouteError,
+} from '@/lib/server-auth';
 
 async function getDashboardData(userId: string) {
   // Get user profile (may fail due to RLS, provide defaults)
@@ -122,47 +128,25 @@ async function getDashboardData(userId: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Try cookie auth
-    const { data: userData } = await auth.getCurrentUser();
-    
-    if (userData?.user) {
-      return NextResponse.json(await getDashboardData(userData.user.id));
-    }
-
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    return NextResponse.json(await getDashboardData(user.id));
   } catch (error) {
-    console.error('Dashboard API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'Dashboard API error:');
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const bodyUserId = body.userId as string;
-
-    // Accept userId from body
-    if (bodyUserId) {
-      return NextResponse.json(await getDashboardData(bodyUserId));
-    }
-
-    // Fallback to cookie auth
-    const { data: userData } = await auth.getCurrentUser();
-    
-    if (userData?.user) {
-      return NextResponse.json(await getDashboardData(userData.user.id));
-    }
-
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // The user id comes from the validated session token, never the
+    // body: anyone could pass any id from the public leaderboard.
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    return NextResponse.json(await getDashboardData(user.id));
   } catch (error) {
-    console.error('Dashboard API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'Dashboard API error:');
   }
 }
 

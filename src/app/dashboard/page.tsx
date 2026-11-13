@@ -9,6 +9,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import { authedFetch } from '@/lib/client-auth';
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
 import {
@@ -71,12 +72,11 @@ export default function DashboardPage() {
         sustainability_score: 0,
       });
       
-      // Fetch user score from database
+      // Fetch user score from database. The session token goes in the
+      // header — the user id is never sent in the body anymore.
       try {
-        const response = await fetch('/api/dashboard', {
+        const response = await authedFetch('/api/dashboard', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: userData.user.id }),
         });
         const data = await response.json();
         if (data.profile) {
@@ -119,7 +119,7 @@ export default function DashboardPage() {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan.id, user.id);
+      await openAddDiy(router, scan.id);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {

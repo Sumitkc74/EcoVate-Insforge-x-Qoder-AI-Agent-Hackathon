@@ -14,19 +14,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from '@/lib/insforge';
 import { runVisionAgent } from '@/lib/agents/vision-agent';
 import { runDIYAgent } from '@/lib/agents/diy-agent';
+import {
+  assertServiceKey,
+  requireUser,
+  unauthorizedResponse,
+  handleRouteError,
+} from '@/lib/server-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    // The user id comes from the client, like /api/dashboard, /api/scan
-    // and /api/verify already do: the session lives client-side, so a
-    // server-side auth.getCurrentUser() here has nothing to read and
-    // returns 401 even for a signed-in user (that was the "Could not
-    // load DIY ideas: Unauthorized" error). Ownership is still checked
-    // server-side against the scan row below.
+    // The user id comes from the validated session token, never the
+    // query string. Ownership is still checked server-side against
+    // the scan row below — now it means something, because the id
+    // itself is authenticated.
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    const userId = user.id;
+
     const scanId = request.nextUrl.searchParams.get('scanId');
-    const userId = request.nextUrl.searchParams.get('userId');
-    if (!scanId || !userId) {
-      return NextResponse.json({ error: 'Missing scanId or userId' }, { status: 400 });
+    if (!scanId) {
+      return NextResponse.json({ error: 'Missing scanId' }, { status: 400 });
     }
 
     const { data: scan, error: scanError } = await serverDb
@@ -67,11 +75,7 @@ export async function GET(request: NextRequest) {
       diyIdeas: ideas,
     });
   } catch (error) {
-    console.error('DIY ideas API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'DIY ideas API error:');
   }
 }
 

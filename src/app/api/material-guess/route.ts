@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { guessMaterialWithGroq } from '@/lib/groq-vision';
+import { requireUser, unauthorizedResponse } from '@/lib/server-auth';
 
 // Two free attempts must fit inside the free-plan function
 // limit of 60s, so each gets 25s: Gemini first, then Groq.
@@ -26,7 +27,13 @@ export async function GET() {
   return NextResponse.json({ ok: true, configured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Every guess burns AI quota, so anonymous calls are not allowed:
+  // the caller must have a valid session. (No service key needed
+  // here — this route never touches the database.)
+  const user = await requireUser(request);
+  if (!user) return unauthorizedResponse();
+
   let body: { image?: string };
   try {
     body = await request.json();

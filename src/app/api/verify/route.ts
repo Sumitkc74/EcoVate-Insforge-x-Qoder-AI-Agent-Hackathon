@@ -6,45 +6,31 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, auth } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
 import { verifyWithGroq } from '@/lib/groq-vision';
 import { uploadImage } from '@/lib/storage';
+import {
+  assertServiceKey,
+  requireUser,
+  overDailyCap,
+  unauthorizedResponse,
+  handleRouteError,
+} from '@/lib/server-auth';
 
 export async function POST(request: NextRequest) {
   try {
-    // Parse request body
-    const formData = await request.formData();
-    const bodyUserId = formData.get('userId') as string;
-    
-    // Verify authentication - accept userId from body
-    let userId: string | null = bodyUserId || null;
-    
-    // Also try to verify with cookie as backup
-    if (!userId) {
-      const { data: userData } = await auth.getCurrentUser();
-      if (userData?.user) {
-        userId = userData.user.id;
-      }
-    }
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth first: the user id comes from the validated session token,
+    // never the body — anyone could pass any id from the leaderboard.
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    const userId = user.id;
 
+    const formData = await request.formData();
     const imageFile = formData.get('image') as File;
     const scanId = formData.get('scanId') as string;
     const projectTitle = formData.get('projectTitle') as string;
     const packagingType = formData.get('packagingType') as string;
-    const estimatedCo2Saved = parseFloat(formData.get('estimatedCo2Saved') as string) || 0.5;
-
-    // Debug logging
-    console.log('Verify request:', { 
-      hasImage: !!imageFile, 
-      scanId, 
-      projectTitle, 
-      packagingType,
-      estimatedCo2Saved
-    });
 
     // Check each field individually for better error messages
     const missingFields: string[] = [];
@@ -54,10 +40,67 @@ export async function POST(request: NextRequest) {
     if (!packagingType) missingFields.push('packagingType');
 
     if (missingFields.length > 0) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: `Missing required fields: ${missingFields.join(', ')}`,
         received: { scanId, projectTitle, packagingType }
       }, { status: 400 });
+    }
+
+    // The scan must belong to the caller when it exists. (A temp
+    // scan id — a scan that was never saved — has no row, so it
+    // proceeds as before.)
+    const { data: scan } = await serverDb
+      .from('scans')
+      .select('user_id')
+      .eq('id', scanId)
+      .single();
+    if (scan && (scan as { user_id: string }).user_id !== userId) {
+      return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
+    }
+
+    // Points come from the chosen DIY idea, not the client: the
+    // client value used to be trusted, so anyone could submit a
+    // verification with an inflated CO2 number and mint points
+    // (10 + CO2 x 20). Look up the latest diy_selected action for
+    // this scan; if the choice was never saved (the log can race the
+    // navigation from the results page), fall back to the client
+    // value clamped to 5 kg — a single DIY idea saves well under that.
+    let estimatedCo2Saved = 0.5;
+    const { data: selectedAction } = await serverDb
+      .from('user_actions')
+      .select('estimated_co2_saved')
+      .eq('user_id', userId)
+      .eq('scan_id', scanId)
+      .eq('action_type', 'diy_selected')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (selectedAction && typeof (selectedAction as { estimated_co2_saved?: unknown }).estimated_co2_saved === 'number') {
+      estimatedCo2Saved = (selectedAction as { estimated_co2_saved: number }).estimated_co2_saved;
+    } else {
+      const clientValue = parseFloat(formData.get('estimatedCo2Saved') as string);
+      estimatedCo2Saved = Number.isFinite(clientValue)
+        ? Math.min(Math.max(clientValue, 0), 5)
+        : 0.5;
+    }
+
+    // Debug logging
+    console.log('Verify request:', {
+      hasImage: !!imageFile,
+      scanId,
+      projectTitle,
+      packagingType,
+      estimatedCo2Saved
+    });
+
+    // Daily cap on verifications (30/day per user): each attempt
+    // burns AI quota, so a signed-in account cannot script unlimited
+    // verifications.
+    if (await overDailyCap(userId, 'user_actions', ['diy_completed', 'diy_pending', 'diy_failed'], 30)) {
+      return NextResponse.json(
+        { success: false, error: 'Daily verification limit reached (30). Try again tomorrow.' },
+        { status: 429 },
+      );
     }
 
     // Convert image to base64 for AI processing
@@ -179,12 +222,12 @@ export async function POST(request: NextRequest) {
       }
       if (insertError) {
         saved = false;
-        saveError = insertError.message;
+        saveError = 'Your project could not be saved to History. Please try again.';
         console.error('Failed to save action:', insertError);
       }
     } catch (dbErr) {
       saved = false;
-      saveError = (dbErr as Error).message;
+      saveError = 'Your project could not be saved to History. Please try again.';
       console.error('Failed to save action:', dbErr);
     }
 
@@ -222,11 +265,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Verify API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: (error as Error).message,
-    }, { status: 500 });
+    return handleRouteError(error, 'Verify API error:');
   }
 }
 

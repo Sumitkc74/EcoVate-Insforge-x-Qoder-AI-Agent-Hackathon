@@ -9,6 +9,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
+import { authedFetch } from '@/lib/client-auth';
 import { getScanDiyState, buildVerifyUrl, openAddDiy } from '@/lib/diy-continue';
 
 interface Scan {
@@ -55,7 +56,6 @@ export default function HistoryPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string>('');
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,12 +69,8 @@ export default function HistoryPage() {
         router.push('/login');
         return;
       }
-      setUserId(userData.user.id);
-
-      const response = await fetch('/api/dashboard', {
+      const response = await authedFetch('/api/dashboard', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: userData.user.id }),
       });
       
       const result = await response.json();
@@ -100,10 +96,10 @@ export default function HistoryPage() {
       }
       setDeletingId(id);
       setDeleteError(null);
-      const response = await fetch('/api/history', {
+      const response = await authedFetch('/api/history', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, id, userId: userData.user.id }),
+        body: JSON.stringify({ type, id }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -122,7 +118,7 @@ export default function HistoryPage() {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan.id, userId);
+      await openAddDiy(router, scan.id);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
@@ -148,12 +144,11 @@ export default function HistoryPage() {
       }
       setDeletingAll(scope);
       setDeleteError(null);
-      const response = await fetch('/api/history', {
+      const response = await authedFetch('/api/history', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: scope === 'scans' ? 'all-scans' : 'all-projects',
-          userId: userData.user.id,
         }),
       });
       const result = await response.json();

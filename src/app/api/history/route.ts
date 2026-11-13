@@ -16,7 +16,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, auth } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
+import {
+  assertServiceKey,
+  requireUser,
+  unauthorizedResponse,
+  handleRouteError,
+} from '@/lib/server-auth';
 
 async function adjustUserScore(userId: string, pointsToRemove: number) {
   if (pointsToRemove <= 0) return;
@@ -44,19 +50,17 @@ async function adjustUserScore(userId: string, pointsToRemove: number) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // The user id comes from the validated session token, never the
+    // body: the ownership checks below only mean something when the
+    // id itself is authenticated.
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user) return unauthorizedResponse();
+    const userId = user.id;
+
     const body = await request.json().catch(() => ({}));
     const type = body.type as string;
     const id = body.id as string;
-    let userId = (body.userId as string) || null;
-
-    if (!userId) {
-      const { data: userData } = await auth.getCurrentUser();
-      if (userData?.user) userId = userData.user.id;
-    }
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
     const validTypes = ['scan', 'project', 'all-scans', 'all-projects'];
     if (!validTypes.includes(type) || ((type === 'scan' || type === 'project') && !id)) {
       return NextResponse.json(
@@ -160,11 +164,7 @@ export async function DELETE(request: NextRequest) {
     await adjustUserScore(userId, deletedImpact);
     return NextResponse.json({ success: true, deletedImpact });
   } catch (error) {
-    console.error('History delete API error:', error);
-    return NextResponse.json(
-      { success: false, error: (error as Error).message },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'History delete API error:');
   }
 }
 
