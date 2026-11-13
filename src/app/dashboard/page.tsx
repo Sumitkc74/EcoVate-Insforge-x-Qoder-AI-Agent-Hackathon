@@ -58,8 +58,10 @@ export default function DashboardPage() {
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
-  // Shared guest pool, from the dashboard API (guests only).
-  const [guestPool, setGuestPool] = useState<{ used: number; limit: number } | null>(null);
+  // This guest's own daily use, from the dashboard API (guests
+  // only): scans and verifications are separate caps of 2 each.
+  const [guestUsage, setGuestUsage] = useState<{ scans: number; verifications: number } | null>(null);
+  const [guestPoolExhausted, setGuestPoolExhausted] = useState(false);
   const [guestSignInError, setGuestSignInError] = useState<string | null>(null);
   // A leftover guest session in this browser while signed in with
   // Google — the callback normally moves it, this is the retry.
@@ -107,7 +109,8 @@ export default function DashboardPage() {
           method: 'POST',
         });
         const data = await response.json();
-        if (data.guestPool) setGuestPool(data.guestPool);
+        if (data.guestUsage) setGuestUsage(data.guestUsage);
+        if (typeof data.guestPoolExhausted === 'boolean') setGuestPoolExhausted(data.guestPoolExhausted);
         if (data.profile) {
           setUser(prev => prev ? { ...prev, sustainability_score: data.profile.sustainability_score || 0 } : null);
         }
@@ -283,8 +286,11 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Guest account</h2>
             <p className="text-sm text-gray-500 mb-3">
               You&apos;re using EcoVate without an account — 2 scans and 2 verifications a day, in this browser only.
-              {guestPool && (
-                <> Guest scans and verifications used today: {guestPool.used} of {guestPool.limit} (shared by all guests).</>
+              {guestUsage && (
+                <> Used today: {guestUsage.scans}/2 scans · {guestUsage.verifications}/2 verifications.</>
+              )}
+              {guestPoolExhausted && (
+                <> Guest logins are exhausted for the day — sign in with Google to continue.</>
               )}
             </p>
             <p className="text-sm text-gray-700 font-medium mb-1">Your leaderboard name:</p>

@@ -10,6 +10,7 @@ import {
   assertServiceKey,
   requireUser,
   guestPoolUsed,
+  guestPersonalUsage,
   GUEST_DAILY_POOL,
   unauthorizedResponse,
   handleRouteError,
@@ -130,13 +131,20 @@ async function getDashboardData(userId: string) {
 
 async function dashboardResponse(user: { id: string; isAnonymous: boolean }) {
   const data = await getDashboardData(user.id);
-  // Guests see how much of the shared daily pool is left, so the
-  // limit does not come as a surprise on their next scan.
+  // Guests see only their own daily use (scans 0/2, verifications
+  // 0/2) — never the shared pool count, which other guests' activity
+  // would move. When the shared pool is done, the card says the
+  // guest logins are exhausted for the day instead of showing a
+  // number.
   if (!user.isAnonymous) return NextResponse.json(data);
-  const used = await guestPoolUsed();
+  const [usage, poolUsed] = await Promise.all([
+    guestPersonalUsage(user.id),
+    guestPoolUsed(),
+  ]);
   return NextResponse.json({
     ...data,
-    guestPool: { used, limit: GUEST_DAILY_POOL },
+    guestUsage: usage,
+    guestPoolExhausted: poolUsed >= GUEST_DAILY_POOL,
   });
 }
 

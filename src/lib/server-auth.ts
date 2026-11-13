@@ -160,7 +160,7 @@ export async function requireUser(request: NextRequest): Promise<AuthedUser | nu
 // users are unaffected.
 export const GUEST_DAILY_POOL = 40;
 export const GUEST_POOL_MESSAGE =
-  'Guest scans and verifications are done for today (40/day shared limit). Sign in with Google to continue.';
+  'Guest logins are exhausted for the day. Sign in with Google to continue.';
 
 export async function guestPoolUsed(): Promise<number> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -195,6 +195,42 @@ export async function guestPoolUsed(): Promise<number> {
   } catch {
     // A counting failure must not block a legitimate request.
     return 0;
+  }
+}
+
+// How much of a guest's own daily allowance they have used —
+// scans and verifications are separate caps (2 each), so both are
+// counted. The shared pool count is deliberately NOT returned: the
+// dashboard shows only these personal numbers, and says the guest
+// logins are exhausted when the pool is done.
+export async function guestPersonalUsage(
+  userId: string,
+): Promise<{ scans: number; verifications: number }> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const [scansRes, actionsRes] = await Promise.all([
+      serverDb
+        .from('scans')
+        .select('id, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(3),
+      serverDb
+        .from('user_actions')
+        .select('id, created_at')
+        .eq('user_id', userId)
+        .in('action_type', ['diy_completed', 'diy_pending', 'diy_failed'])
+        .order('created_at', { ascending: false })
+        .limit(3),
+    ]);
+    const count = (rows: { created_at: string }[] | null) =>
+      Math.min((rows || []).filter((r) => r.created_at >= since).length, 2);
+    return {
+      scans: count(scansRes.data as { created_at: string }[] | null),
+      verifications: count(actionsRes.data as { created_at: string }[] | null),
+    };
+  } catch {
+    return { scans: 0, verifications: 0 };
   }
 }
 
