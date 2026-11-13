@@ -55,6 +55,7 @@ export default function HistoryPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
 
   useEffect(() => {
     fetchHistory();
@@ -67,6 +68,7 @@ export default function HistoryPage() {
         router.push('/login');
         return;
       }
+      setUserId(userData.user.id);
 
       const response = await fetch('/api/dashboard', {
         method: 'POST',
@@ -119,7 +121,7 @@ export default function HistoryPage() {
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan);
+      await openAddDiy(router, scan, userId);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
@@ -336,17 +338,19 @@ export default function HistoryPage() {
                         <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
                           diy.status === 'completed'
                             ? 'bg-green-100 text-green-700'
+                            : diy.status === 'failed'
+                            ? 'bg-red-100 text-red-700'
                             : diy.status === 'pending' || diy.status === 'selected'
                             ? 'bg-amber-100 text-amber-700'
                             : 'bg-gray-100 text-gray-600'
                         }`}>
                           {diy.status === 'completed'
                             ? 'DIY Completed'
-                            : diy.status === 'pending'
-                            ? 'Pending Review'
-                            : diy.status === 'selected'
-                            ? 'DIY Chosen'
-                            : 'Not completed'}
+                            : diy.status === 'failed'
+                            ? 'DIY Failed'
+                            : diy.status === 'pending' || diy.status === 'selected'
+                            ? 'DIY Incomplete'
+                            : 'DIY Unselected'}
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 capitalize">{scan.materials?.join(', ') || 'Unknown materials'}</p>

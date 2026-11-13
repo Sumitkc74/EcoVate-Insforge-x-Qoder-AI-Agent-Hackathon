@@ -91,8 +91,9 @@ export function buildVerifyUrl(args: {
 export async function openAddDiy(
   router: { push: (url: string) => void },
   scan: DiyScanLike,
+  userId: string,
 ): Promise<void> {
-  const response = await fetch(`/api/diy-ideas?scanId=${encodeURIComponent(scan.id)}`);
+  const response = await fetch(`/api/diy-ideas?scanId=${encodeURIComponent(scan.id)}&userId=${encodeURIComponent(userId)}`);
   const result = await response.json();
   if (!response.ok || !result.success) {
     throw new Error(result.error || 'Could not load DIY ideas for this scan');

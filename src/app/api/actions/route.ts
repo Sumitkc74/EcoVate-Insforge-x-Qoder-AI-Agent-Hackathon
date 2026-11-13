@@ -5,21 +5,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, auth } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify authentication
-    const { data: userData, error: authError } = await auth.getCurrentUser();
-    if (authError || !userData?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const userId = userData.user.id;
+    // The user id comes in the body, like /api/dashboard, /api/scan
+    // and /api/verify already do: the session lives client-side, so a
+    // server-side auth.getCurrentUser() here has nothing to read and
+    // fails even for a signed-in user — which silently broke saving a
+    // chosen DIY idea ("Upload later" saved nothing).
     const body = await request.json();
-    const { scanId, actionType, projectTitle, packagingType, estimatedCo2Saved } = body;
+    const { scanId, actionType, projectTitle, packagingType, estimatedCo2Saved, userId } = body;
 
-    if (!scanId || !actionType) {
+    if (!scanId || !actionType || !userId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 

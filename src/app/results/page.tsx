@@ -8,7 +8,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import type { ScanResult, DIYIdea } from '@/lib/insforge';
+import { auth, type ScanResult, type DIYIdea } from '@/lib/insforge';
 
 // Loading fallback
 function ResultsLoading() {
@@ -27,6 +27,7 @@ function ResultsContent() {
   const [scanData, setScanData] = useState<ScanResult | null>(null);
   const [scanId, setScanId] = useState<string>('');
   const [selectedDIY, setSelectedDIY] = useState<DIYIdea | null>(null);
+  const [userId, setUserId] = useState<string>('');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiVersion, setApiVersion] = useState<string>('');
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
@@ -56,6 +57,11 @@ function ResultsContent() {
     if (searchParams.get('tab') === 'diy') {
       setActiveTab('diy');
     }
+    // The user id is needed to save a chosen idea (the API takes it
+    // in the body — the session lives client-side).
+    auth.getCurrentUser().then(({ data }) => {
+      if (data?.user) setUserId(data.user.id);
+    }).catch(() => {});
   }, [searchParams]);
 
   const handleDIYSelect = (diy: DIYIdea) => {
@@ -68,6 +74,7 @@ function ResultsContent() {
   // Record the chosen idea (with its title, packaging type and CO2
   // estimate) so it can be resumed later from the dashboard or History.
   const logSelection = (diy: DIYIdea) => {
+    if (!userId) return;
     fetch('/api/actions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,6 +85,7 @@ function ResultsContent() {
         projectTitle: diy.title,
         packagingType: scanData?.packaging_type,
         estimatedCo2Saved: diy.estimated_co2_saved_kg,
+        userId,
       }),
     }).catch(console.error);
   };

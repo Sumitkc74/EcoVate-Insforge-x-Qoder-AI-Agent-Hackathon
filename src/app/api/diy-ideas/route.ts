@@ -11,20 +11,22 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, auth } from '@/lib/insforge';
+import { serverDb } from '@/lib/insforge';
 import { runVisionAgent } from '@/lib/agents/vision-agent';
 import { runDIYAgent } from '@/lib/agents/diy-agent';
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: userData, error: authError } = await auth.getCurrentUser();
-    if (authError || !userData?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
+    // The user id comes from the client, like /api/dashboard, /api/scan
+    // and /api/verify already do: the session lives client-side, so a
+    // server-side auth.getCurrentUser() here has nothing to read and
+    // returns 401 even for a signed-in user (that was the "Could not
+    // load DIY ideas: Unauthorized" error). Ownership is still checked
+    // server-side against the scan row below.
     const scanId = request.nextUrl.searchParams.get('scanId');
-    if (!scanId) {
-      return NextResponse.json({ error: 'Missing scanId' }, { status: 400 });
+    const userId = request.nextUrl.searchParams.get('userId');
+    if (!scanId || !userId) {
+      return NextResponse.json({ error: 'Missing scanId or userId' }, { status: 400 });
     }
 
     const { data: scan, error: scanError } = await serverDb
@@ -35,7 +37,7 @@ export async function GET(request: NextRequest) {
     if (scanError || !scan) {
       return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
     }
-    if (scan.user_id !== userData.user.id) {
+    if (scan.user_id !== userId) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
     }
 

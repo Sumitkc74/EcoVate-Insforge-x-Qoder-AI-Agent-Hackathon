@@ -103,10 +103,14 @@ export default function DashboardPage() {
   };
 
   const handleAddDiy = async (scan: DiyScanLike) => {
+    if (!user?.id) {
+      setDiyError('Please log in again');
+      return;
+    }
     setAddDiyId(scan.id);
     setDiyError(null);
     try {
-      await openAddDiy(router, scan);
+      await openAddDiy(router, scan, user.id);
     } catch (e) {
       setDiyError((e as Error).message);
     } finally {
