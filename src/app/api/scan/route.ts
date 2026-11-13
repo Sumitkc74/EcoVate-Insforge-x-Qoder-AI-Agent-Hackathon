@@ -14,6 +14,9 @@ import {
   assertServiceKey,
   requireUser,
   overDailyCap,
+  guestPoolUsed,
+  GUEST_DAILY_POOL,
+  GUEST_POOL_MESSAGE,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
@@ -54,6 +57,16 @@ export async function POST(request: NextRequest) {
             ? 'Daily scan limit reached (2 for guest accounts). Sign in with Google for 30 a day.'
             : 'Daily scan limit reached (30). Try again tomorrow.',
         },
+        { status: 429 },
+      );
+    }
+
+    // Shared guest pool: all guests together get 40 scans +
+    // verifications a day. Once it is used up, guest scans stop for
+    // the day; signed-in users are unaffected.
+    if (user.isAnonymous && (await guestPoolUsed()) >= GUEST_DAILY_POOL) {
+      return NextResponse.json(
+        { success: false, error: GUEST_POOL_MESSAGE },
         { status: 429 },
       );
     }

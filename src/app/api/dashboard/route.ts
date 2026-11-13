@@ -9,6 +9,8 @@ import { serverDb } from '@/lib/insforge';
 import {
   assertServiceKey,
   requireUser,
+  guestPoolUsed,
+  GUEST_DAILY_POOL,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
@@ -126,12 +128,24 @@ async function getDashboardData(userId: string) {
   };
 }
 
+async function dashboardResponse(user: { id: string; isAnonymous: boolean }) {
+  const data = await getDashboardData(user.id);
+  // Guests see how much of the shared daily pool is left, so the
+  // limit does not come as a surprise on their next scan.
+  if (!user.isAnonymous) return NextResponse.json(data);
+  const used = await guestPoolUsed();
+  return NextResponse.json({
+    ...data,
+    guestPool: { used, limit: GUEST_DAILY_POOL },
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     assertServiceKey();
     const user = await requireUser(request);
     if (!user) return unauthorizedResponse();
-    return NextResponse.json(await getDashboardData(user.id));
+    return dashboardResponse(user);
   } catch (error) {
     return handleRouteError(error, 'Dashboard API error:');
   }
@@ -144,7 +158,7 @@ export async function POST(request: NextRequest) {
     assertServiceKey();
     const user = await requireUser(request);
     if (!user) return unauthorizedResponse();
-    return NextResponse.json(await getDashboardData(user.id));
+    return dashboardResponse(user);
   } catch (error) {
     return handleRouteError(error, 'Dashboard API error:');
   }

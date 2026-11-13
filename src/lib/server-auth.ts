@@ -85,7 +85,7 @@ export async function createAnonToken(userId: string): Promise<string> {
   return `${ANON_TOKEN_PREFIX}${userId}_${sigHex}`;
 }
 
-async function validateAnonToken(token: string): Promise<AuthedUser | null> {
+export async function validateAnonToken(token: string): Promise<AuthedUser | null> {
   assertServiceKey();
   const rest = token.slice(ANON_TOKEN_PREFIX.length);
   const sep = rest.lastIndexOf('_');
@@ -149,6 +149,52 @@ export async function requireUser(request: NextRequest): Promise<AuthedUser | nu
     };
   } catch {
     return null;
+  }
+}
+
+// Shared daily pool for ALL guest accounts: 40 guest scans +
+// verifications combined per day (about 20 guests at 2 each). Counted
+// from the tables that already exist — guest accounts are the users
+// rows whose email ends in @anon.ecovate.local. When the pool is
+// used up, guest scans and verifications stop for the day; signed-in
+// users are unaffected.
+export const GUEST_DAILY_POOL = 40;
+export const GUEST_POOL_MESSAGE =
+  'Guest scans and verifications are done for today (40/day shared limit). Sign in with Google to continue.';
+
+export async function guestPoolUsed(): Promise<number> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const { data: users } = await serverDb.from('users').select('id, email');
+    const guestIds = ((users || []) as { id: string; email: string | null }[])
+      .filter((u) => typeof u.email === 'string' && u.email.endsWith('@anon.ecovate.local'))
+      .map((u) => u.id);
+    if (guestIds.length === 0) return 0;
+    const [scansRes, actionsRes] = await Promise.all([
+      serverDb
+        .from('scans')
+        .select('id, created_at')
+        .in('user_id', guestIds)
+        .order('created_at', { ascending: false })
+        .limit(200),
+      serverDb
+        .from('user_actions')
+        .select('id, created_at')
+        .in('user_id', guestIds)
+        .in('action_type', ['diy_completed', 'diy_pending', 'diy_failed'])
+        .order('created_at', { ascending: false })
+        .limit(200),
+    ]);
+    const scans = ((scansRes.data || []) as { created_at: string }[]).filter(
+      (r) => r.created_at >= since,
+    ).length;
+    const actions = ((actionsRes.data || []) as { created_at: string }[]).filter(
+      (r) => r.created_at >= since,
+    ).length;
+    return scans + actions;
+  } catch {
+    // A counting failure must not block a legitimate request.
+    return 0;
   }
 }
 

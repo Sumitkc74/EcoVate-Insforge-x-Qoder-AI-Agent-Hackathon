@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/insforge';
 import { ensureUserProfile } from '@/lib/auth';
+import { authedFetch, readAnonSession, clearAnonSession } from '@/lib/client-auth';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -54,6 +55,33 @@ export default function AuthCallbackPage() {
           if (profileError) {
             console.error('Profile creation error:', profileError);
             // Continue anyway - profile might already exist
+          }
+
+          // A guest who signs in with Google keeps their history:
+          // move the guest account's scans and verifications onto
+          // this Google account. The guest session must still be in
+          // localStorage — signing out first would have cleared it,
+          // so the dashboard's guest card is the way in, not Sign out.
+          const guestSession = readAnonSession();
+          if (guestSession) {
+            try {
+              setStatus('Moving your guest history to this account...');
+              const migrateResponse = await authedFetch('/api/migrate-guest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ guestToken: guestSession.token }),
+              });
+              const migrateResult = await migrateResponse.json().catch(() => ({}));
+              if (migrateResponse.ok && migrateResult.success) {
+                clearAnonSession();
+              } else {
+                // Keep the guest session: the dashboard offers to
+                // retry the move from there.
+                console.error('Guest migration failed:', migrateResult.error);
+              }
+            } catch (migrateErr) {
+              console.error('Guest migration failed:', migrateErr);
+            }
           }
 
           setStatus('Authentication successful! Redirecting...');

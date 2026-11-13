@@ -19,12 +19,24 @@ import {
   assertServiceKey,
   createAnonToken,
   normalizeDisplayName,
+  guestPoolUsed,
+  GUEST_DAILY_POOL,
+  GUEST_POOL_MESSAGE,
   handleRouteError,
 } from '@/lib/server-auth';
 
 export async function POST(request: NextRequest) {
   try {
     assertServiceKey();
+    // No point creating a guest account that cannot scan: when the
+    // shared daily pool is already used up, say so now instead of
+    // letting the guest in and failing their first scan.
+    if ((await guestPoolUsed()) >= GUEST_DAILY_POOL) {
+      return NextResponse.json(
+        { success: false, error: GUEST_POOL_MESSAGE },
+        { status: 429 },
+      );
+    }
     const body = await request.json().catch(() => ({}));
     const name = normalizeDisplayName(body?.name);
 

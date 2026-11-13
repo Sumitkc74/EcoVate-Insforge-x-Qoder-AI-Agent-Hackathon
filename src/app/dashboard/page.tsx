@@ -8,7 +8,15 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentIdentity, authedFetch, updateAnonSessionName } from '@/lib/client-auth';
+import { signInWithGoogle } from '@/lib/auth';
+import {
+  getCurrentIdentity,
+  authedFetch,
+  updateAnonSessionName,
+  readAnonSession,
+  clearAnonSession,
+  type AnonSession,
+} from '@/lib/client-auth';
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
 import {
@@ -50,6 +58,15 @@ export default function DashboardPage() {
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  // Shared guest pool, from the dashboard API (guests only).
+  const [guestPool, setGuestPool] = useState<{ used: number; limit: number } | null>(null);
+  const [guestSignInError, setGuestSignInError] = useState<string | null>(null);
+  // A leftover guest session in this browser while signed in with
+  // Google — the callback normally moves it, this is the retry.
+  const [leftoverGuest, setLeftoverGuest] = useState<AnonSession | null>(null);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrateError, setMigrateError] = useState<string | null>(null);
+  const [migrated, setMigrated] = useState(false);
 
   // The signed-in user's own leaderboard row, so their rank stays
   // visible even when the list scrolls past it.
@@ -79,6 +96,9 @@ export default function DashboardPage() {
         isAnonymous: identity.isAnonymous,
       });
       if (identity.isAnonymous) setDisplayName(identity.name || 'Guest');
+      // A Google user with a guest session still in this browser:
+      // the callback normally moves it, this is the retry.
+      if (!identity.isAnonymous) setLeftoverGuest(readAnonSession());
       
       // Fetch user score from database. The session token goes in the
       // header — the user id is never sent in the body anymore.
@@ -87,6 +107,7 @@ export default function DashboardPage() {
           method: 'POST',
         });
         const data = await response.json();
+        if (data.guestPool) setGuestPool(data.guestPool);
         if (data.profile) {
           setUser(prev => prev ? { ...prev, sustainability_score: data.profile.sustainability_score || 0 } : null);
         }
@@ -141,6 +162,41 @@ export default function DashboardPage() {
       setNameError((e as Error).message);
     } finally {
       setIsSavingName(false);
+    }
+  };
+
+  // A guest signing in with Google from here — not via Sign out,
+  // which clears the guest session first. The OAuth callback moves
+  // the guest history onto the Google account.
+  const handleGuestGoogleSignIn = async () => {
+    setGuestSignInError(null);
+    const { error } = await signInWithGoogle();
+    if (error) setGuestSignInError(error.message);
+    // Success redirects to Google.
+  };
+
+  // Retry moving a leftover guest session onto this Google account
+  // (the callback normally does it; this covers a failed attempt).
+  const handleMigrateGuest = async () => {
+    if (!leftoverGuest) return;
+    setIsMigrating(true);
+    setMigrateError(null);
+    try {
+      const response = await authedFetch('/api/migrate-guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guestToken: leftoverGuest.token }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not move the guest history');
+      clearAnonSession();
+      setLeftoverGuest(null);
+      setMigrated(true);
+      await checkAuth();
+    } catch (e) {
+      setMigrateError((e as Error).message);
+    } finally {
+      setIsMigrating(false);
     }
   };
 
@@ -226,8 +282,12 @@ export default function DashboardPage() {
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Guest account</h2>
             <p className="text-sm text-gray-500 mb-3">
-              You&apos;re using EcoVate without an account — 2 scans and 2 verifications a day, in this browser only. Your leaderboard name:
+              You&apos;re using EcoVate without an account — 2 scans and 2 verifications a day, in this browser only.
+              {guestPool && (
+                <> Guest scans and verifications used today: {guestPool.used} of {guestPool.limit} (shared by all guests).</>
+              )}
             </p>
+            <p className="text-sm text-gray-700 font-medium mb-1">Your leaderboard name:</p>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -247,7 +307,41 @@ export default function DashboardPage() {
             </div>
             {nameSaved && <p className="text-sm text-green-600 mt-2">Saved.</p>}
             {nameError && <p className="text-sm text-red-600 mt-2">{nameError}</p>}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-sm text-gray-500 mb-2">
+                Want to keep your scans? Sign in with Google — your guest history moves to your account.
+              </p>
+              <button
+                onClick={handleGuestGoogleSignIn}
+                className="w-full flex items-center justify-center space-x-2 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-4 rounded-xl transition-all"
+              >
+                <span>Sign in with Google</span>
+              </button>
+              {guestSignInError && <p className="text-sm text-red-600 mt-2">{guestSignInError}</p>}
+            </div>
           </div>
+        )}
+
+        {/* Google user with a guest session left in this browser:
+            the callback normally moves it; this is the retry. */}
+        {user && !user.isAnonymous && leftoverGuest && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Guest history found</h2>
+            <p className="text-sm text-gray-500 mb-3">
+              You have scans from a guest session in this browser ({leftoverGuest.name}). Move them to this account?
+            </p>
+            <button
+              onClick={handleMigrateGuest}
+              disabled={isMigrating}
+              className="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-50"
+            >
+              {isMigrating ? 'Moving…' : 'Move guest history to this account'}
+            </button>
+            {migrateError && <p className="text-sm text-red-600 mt-2">{migrateError}</p>}
+          </div>
+        )}
+        {migrated && (
+          <p className="text-sm text-green-600 text-center">Guest history moved to this account.</p>
         )}
 
         {/* Score Card */}
