@@ -147,7 +147,26 @@ export async function GET(request: NextRequest) {
     }
     await logAttempt(userId, 'diy_refresh');
 
-    const { ideas } = await runDIYAgent(packagingType, scan.materials || []);
+    const { ideas, error } = await runDIYAgent(packagingType, scan.materials || []);
+
+    // A failed refresh must not replace good ideas with the fixed
+    // fallback set: return an error instead, so the results page
+    // keeps the ideas already on screen and shows a retry message
+    // (its refresh handler only swaps ideas on a successful
+    // response). The attempt still counts — the AI calls were made
+    // — but the user keeps their current ideas and can retry.
+    // The first generation for an old scan (no stored ideas yet)
+    // still falls back: there the fallback set is better than
+    // nothing, and there is nothing good to overwrite.
+    if (refresh && error) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Could not generate new ideas right now — the AI service failed. Your current ideas are unchanged; try again.',
+        },
+        { status: 503 },
+      );
+    }
 
     // Best-effort store: the column may not exist yet (one-time SQL
     // pending), in which case this is a no-op and the next open
