@@ -145,3 +145,24 @@ export async function authedFetch(
   }
   return response;
 }
+
+// Parse an API response body as JSON. Our routes always answer JSON,
+// but the platform does not: when a function times out (60s limit)
+// or the edge 502s, the body is a plain-text error page, not JSON.
+// Parsing that with response.json() throws a confusing
+// "Unexpected token ..." error that hides the real cause — a scan
+// that timed out showed up as a JSON parse error instead of "the
+// scan took too long". Read text first so a non-JSON body becomes
+// a plain retry message instead.
+export async function readApiJson(response: Response): Promise<any> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      response.status === 504 || response.status === 502 || response.status === 503
+        ? 'The request took too long — the AI services were slow. Please try again.'
+        : 'The server did not return a usable response. Please try again.',
+    );
+  }
+}

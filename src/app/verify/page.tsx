@@ -9,7 +9,7 @@
 
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { downscaleImageFile } from '@/lib/image-resize';
 import UserMenu from '@/components/UserMenu';
 import { openAddDiy } from '@/lib/diy-continue';
@@ -143,7 +143,7 @@ function VerifyContent() {
         body: formData,
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response);
 
       if (!response.ok) {
         throw new Error(data.error || 'Verification failed');

@@ -15,8 +15,8 @@ import {
   updateAnonSessionName,
   readAnonSession,
   clearAnonSession,
-  type AnonSession,
-} from '@/lib/client-auth';
+  type AnonSession,,
+  readApiJson} from '@/lib/client-auth';
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
 import {
@@ -108,7 +108,7 @@ export default function DashboardPage() {
         const response = await authedFetch('/api/dashboard', {
           method: 'POST',
         });
-        const data = await response.json();
+        const data = await readApiJson(response);
         if (data.guestUsage) setGuestUsage(data.guestUsage);
         if (typeof data.guestPoolExhausted === 'boolean') setGuestPoolExhausted(data.guestPoolExhausted);
         if (data.profile) {
@@ -124,7 +124,7 @@ export default function DashboardPage() {
       // Leaderboard is a bonus section: never block or break the page if it fails.
       try {
         const leaderboardResponse = await fetch('/api/leaderboard');
-        const leaderboardData = await leaderboardResponse.json();
+        const leaderboardData = await readApiJson(leaderboardResponse);
         if (leaderboardResponse.ok && leaderboardData.success && Array.isArray(leaderboardData.leaderboard)) {
           // The API returns the top 20; the list below shows the top
           // five and scrolls the rest.
@@ -155,7 +155,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: displayName }),
       });
-      const result = await response.json();
+      const result = await readApiJson(response);
       if (!response.ok) throw new Error(result.error || 'Could not save the name');
       setUser((prev) => (prev ? { ...prev, name: result.name } : prev));
       setDisplayName(result.name);
@@ -190,7 +190,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guestToken: leftoverGuest.token }),
       });
-      const result = await response.json();
+      const result = await readApiJson(response);
       if (!response.ok) throw new Error(result.error || 'Could not move the guest history');
       clearAnonSession();
       setLeftoverGuest(null);

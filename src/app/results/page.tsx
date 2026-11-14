@@ -9,7 +9,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { type ScanResult, type DIYIdea } from '@/lib/insforge';
-import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 
 // Loading fallback
@@ -95,7 +95,7 @@ function ResultsContent() {
     setRefreshIdeasError(null);
     try {
       const response = await authedFetch(`/api/diy-ideas?scanId=${encodeURIComponent(scanId)}&refresh=1`);
-      const result = await response.json();
+      const result = await readApiJson(response);
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Could not load different ideas');
       }

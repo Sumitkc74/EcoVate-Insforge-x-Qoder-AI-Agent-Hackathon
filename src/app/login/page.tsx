@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signInWithGoogle } from '@/lib/auth';
-import { saveAnonSession } from '@/lib/client-auth';
+import { saveAnonSession, readApiJson } from '@/lib/client-auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,7 +47,7 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: guestName }),
       });
-      const result = await response.json();
+      const result = await readApiJson(response);
       if (!response.ok || !result.token) {
         throw new Error(result.error || 'Could not start a guest session');
       }

@@ -51,9 +51,11 @@ Respond ONLY with a JSON array in this exact format:
 `;
 }
 
-// One retry on a transient failure (Gemini 503s and timeouts are
-// its known flakiness): the first attempt usually fails fast
-// enough that a second try still fits the 60s route limit, and it
+// One retry, but only when the first attempt failed FAST (under
+// 10s): a fast 503/429 is transient and worth one more try, while
+// a 25s timeout means the model is slow — retrying that would add
+// another 25s and push the scan past the route's 60s limit (vision
+// alone can take 40s, so the budget is already tight). The retry
 // costs nothing when the first attempt succeeds.
 async function generateIdeasWithGemini(
   packagingType: string,
@@ -62,6 +64,7 @@ async function generateIdeasWithGemini(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
+    const attemptStarted = Date.now();
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
@@ -99,7 +102,13 @@ async function generateIdeasWithGemini(
     } catch (err) {
       console.error('Gemini DIY error:', err);
     }
-    if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
+    // Retry only a fast failure (see above): a slow timeout means
+    // the model is busy, and another 25s would blow the 60s budget.
+    if (attempt === 0 && Date.now() - attemptStarted < 10000) {
+      await new Promise((r) => setTimeout(r, 1500));
+    } else {
+      break;
+    }
   }
   return null;
 }

@@ -8,7 +8,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { downscaleImageFile, MAX_PHOTO_DIMENSION } from '@/lib/image-resize';
 import UserMenu from '@/components/UserMenu';
 
@@ -308,7 +308,7 @@ export default function ScanPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: base64Image }),
         });
-        const result = await response.json();
+        const result = await readApiJson(response);
         if (!response.ok) throw new Error(result.error || 'Gemini could not guess the material.');
         if (result.material) {
           localMaterials = result.material;
@@ -425,7 +425,7 @@ export default function ScanPage() {
         }),
       });
 
-      const result = await response.json();
+      const result = await readApiJson(response);
 
       if (!response.ok) {
         // Confident detail mismatch: stay on the photo with the

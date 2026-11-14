@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentIdentity, authedFetch } from '@/lib/client-auth';
+import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { getScanDiyState, buildVerifyUrl, openAddDiy } from '@/lib/diy-continue';
 
 interface Scan {
@@ -74,7 +74,7 @@ export default function HistoryPage() {
 
   const loadHistoryPage = async (sOff: number, aOff: number) => {
     const response = await authedFetch(`/api/history?limit=${PAGE_SIZE}&scanOffset=${sOff}&actionOffset=${aOff}`);
-    const result = await response.json();
+    const result = await readApiJson(response);
     if (!response.ok) throw new Error(result.error || 'Could not load history');
     return result;
   };
@@ -152,7 +152,7 @@ export default function HistoryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, id }),
       });
-      const result = await response.json();
+      const result = await readApiJson(response);
       if (!response.ok) {
         throw new Error(result.error || 'Delete failed');
       }
@@ -205,7 +205,7 @@ export default function HistoryPage() {
           type: scope === 'scans' ? 'all-scans' : 'all-projects',
         }),
       });
-      const result = await response.json();
+      const result = await readApiJson(response);
       if (!response.ok) {
         throw new Error(result.error || 'Delete failed');
       }

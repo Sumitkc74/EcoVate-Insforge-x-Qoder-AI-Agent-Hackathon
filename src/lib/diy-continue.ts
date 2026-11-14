@@ -18,7 +18,7 @@
  */
 
 import type { DIYIdea, ScanResult } from './insforge';
-import { authedFetch } from './client-auth';
+import { authedFetch, readApiJson } from './client-auth';
 
 export interface DiyActionLike {
   id: string;
@@ -106,7 +106,7 @@ export async function openAddDiy(
 ): Promise<void> {
   const query = `/api/diy-ideas?scanId=${encodeURIComponent(scanId)}${refresh ? '&refresh=1' : ''}`;
   const response = await authedFetch(query);
-  const result = await response.json();
+  const result = await readApiJson(response);
   if (!response.ok || !result.success) {
     throw new Error(result.error || 'Could not load DIY ideas for this scan');
   }
