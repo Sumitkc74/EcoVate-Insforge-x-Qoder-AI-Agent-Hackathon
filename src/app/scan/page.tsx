@@ -201,32 +201,30 @@ export default function ScanPage() {
     setIsAutoRunning(true);
     setAutoStatus('Checking your photo…');
     setMaterialGuess('');
-    let localPackaging = packagingType;
-    let localMaterials = materialsText;
-    let localProduct = productName;
-    let labelText = '';
-    const sources: string[] = [];
-    let geminiFailed = false;
+
+    // The three reads are independent, so they run at the same time
+    // instead of one after another. Serially the check took ~45s
+    // (label, then shape, then the guess), and a slow first step
+    // delayed the guess that usually saves it. Each step returns
+    // what it found (or nothing on failure); the merge below trusts
+    // the printed label first, then the shape, then the model guess.
 
     // 1. Printed label text (OCR, on the device).
-    try {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('eng');
+    const readLabel = async (): Promise<{ labelText: string; packaging: string; materials: string }> => {
+      const empty = { labelText: '', packaging: '', materials: '' };
       try {
-        const { data } = await worker.recognize(previewImage);
-        labelText = (data.text || '').trim();
-        setOcrText(labelText);
-        if (labelText) {
-          const lower = labelText.toLowerCase();
-          if (!localPackaging) {
+        const { createWorker } = await import('tesseract.js');
+        const worker = await createWorker('eng');
+        try {
+          const { data } = await worker.recognize(previewImage);
+          const labelText = (data.text || '').trim();
+          setOcrText(labelText);
+          let packaging = '';
+          let materials = '';
+          if (labelText) {
+            const lower = labelText.toLowerCase();
             const packagingWords = ['bottle', 'jar', 'can', 'box', 'bag', 'carton', 'wrapper', 'container'];
-            const foundPackaging = packagingWords.find((word) => new RegExp(`\\b${word}\\b`).test(lower));
-            if (foundPackaging) {
-              localPackaging = foundPackaging;
-              sources.push('the label');
-            }
-          }
-          if (!localMaterials) {
+            packaging = packagingWords.find((word) => new RegExp(`\\b${word}\\b`).test(lower)) || '';
             const materialWords: Array<[RegExp, string]> = [
               [/\bpet\b|polyethylene terephthalate/, 'PET plastic'],
               [/\bhdpe\b|high-density polyethylene/, 'HDPE plastic'],
@@ -237,65 +235,73 @@ export default function ScanPage() {
               [/\bpaper\b/, 'paper'],
               [/\bplastic\b/, 'mixed plastic'],
             ];
-            const foundMaterials = materialWords
+            materials = materialWords
               .filter(([pattern]) => pattern.test(lower))
-              .map(([, material]) => material);
-            if (foundMaterials.length > 0) {
-              localMaterials = foundMaterials.join(', ');
-              if (!sources.includes('the label')) sources.push('the label');
-            }
+              .map(([, material]) => material)
+              .join(', ');
           }
+          return { labelText, packaging, materials };
+        } finally {
+          await worker.terminate();
         }
-      } finally {
-        await worker.terminate();
+      } catch (err) {
+        console.error('OCR error:', err);
+        return empty;
       }
-    } catch (err) {
-      console.error('OCR error:', err);
-    }
+    };
 
     // 2. Packaging shape (on the device). Only a bottle suggests a
     // packaging type, and shape alone never suggests a material.
-    try {
-      const tf = await import('@tensorflow/tfjs');
-      await tf.ready();
-      const cocoSsd = await import('@tensorflow-models/coco-ssd');
-      const model = await cocoSsd.load();
+    // A clear bottle is invisible to this detector — it once called
+    // one a "remote" at 84% — so the shape is only one of three
+    // reads, and the model guess below covers the photos it cannot
+    // see.
+    const detectShape = async (): Promise<{ packaging: string }> => {
       try {
-        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const image = new Image();
-          image.onload = () => resolve(image);
-          image.onerror = () => reject(new Error('Could not load image'));
-          image.src = previewImage;
-        });
-        // Only packaging-plausible shapes are shown or trusted. The
-        // detector's 80 classes include things that are never
-        // packaging — it once called a clear bottle a "remote" at
-        // 84% — and showing that as a confident label is worse than
-        // showing nothing. When nothing plausible is found the
-        // "couldn't read the photo" fallback covers it, and the
-        // imageCheck section simply does not render.
-        const PACKAGING_SHAPES = new Set(['bottle', 'cup', 'bowl', 'wine glass', 'vase']);
-        const predictions = (await model.detect(img))
-          .filter((pred) => pred.score >= 0.5 && PACKAGING_SHAPES.has(pred.class))
-          .sort((a, b) => b.score - a.score);
-        if (predictions.length > 0) {
-          setImageCheck(predictions.map((pred) => `${pred.class} (${Math.round(pred.score * 100)}%)`).join(', '));
-          if (!localPackaging && predictions.some((pred) => pred.class === 'bottle')) {
-            localPackaging = 'bottle';
-            sources.push('the shape');
+        const tf = await import('@tensorflow/tfjs');
+        await tf.ready();
+        const cocoSsd = await import('@tensorflow-models/coco-ssd');
+        const model = await cocoSsd.load();
+        try {
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('Could not load image'));
+            image.src = previewImage;
+          });
+          // Only packaging-plausible shapes are shown or trusted. The
+          // detector's 80 classes include things that are never
+          // packaging — showing one as a confident label is worse than
+          // showing nothing. When nothing plausible is found the
+          // "couldn't read the photo" fallback covers it, and the
+          // imageCheck section simply does not render.
+          const PACKAGING_SHAPES = new Set(['bottle', 'cup', 'bowl', 'wine glass', 'vase']);
+          const predictions = (await model.detect(img))
+            .filter((pred) => pred.score >= 0.5 && PACKAGING_SHAPES.has(pred.class))
+            .sort((a, b) => b.score - a.score);
+          if (predictions.length > 0) {
+            setImageCheck(predictions.map((pred) => `${pred.class} (${Math.round(pred.score * 100)}%)`).join(', '));
+            if (predictions.some((pred) => pred.class === 'bottle')) {
+              return { packaging: 'bottle' };
+            }
           }
+          return { packaging: '' };
+        } finally {
+          model.dispose();
         }
-      } finally {
-        model.dispose();
+      } catch (err) {
+        console.error('Image check error:', err);
+        return { packaging: '' };
       }
-    } catch (err) {
-      console.error('Image check error:', err);
-    }
+    };
 
-    // 3. Gemini material guess, only if the material is still
-    // unknown. On failure the label/shape results above are the
-    // fallback, so the user is not left with nothing.
-    if (!localMaterials) {
+    // 3. Model guess (Gemini, Groq on failure). It runs on every
+    // photo now, not only when the material is unknown: it is also
+    // the packaging detector for clear items the shape model cannot
+    // see, so it cannot wait to find out whether the label or the
+    // shape already answered. On failure the label/shape results
+    // above are the fallback, so the user is not left with nothing.
+    const guessMaterial = async (): Promise<{ material: string; packaging: string } | null> => {
       try {
         const base64Image = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -310,18 +316,53 @@ export default function ScanPage() {
         });
         const result = await readApiJson(response);
         if (!response.ok) throw new Error(result.error || 'Gemini could not guess the material.');
-        if (result.material) {
-          localMaterials = result.material;
-          setMaterialGuess(result.material);
-          sources.push('Gemini');
-        } else {
-          geminiFailed = true;
-        }
+        if (!result.material && !result.packaging) return null;
+        return { material: result.material || '', packaging: result.packaging || '' };
       } catch (err) {
         console.error('Gemini guess error:', err);
-        geminiFailed = true;
+        return null;
+      }
+    };
+
+    const [labelSettled, shapeSettled, guessSettled] = await Promise.allSettled([
+      readLabel(),
+      detectShape(),
+      guessMaterial(),
+    ]);
+    const label = labelSettled.status === 'fulfilled' ? labelSettled.value : { labelText: '', packaging: '', materials: '' };
+    const shape = shapeSettled.status === 'fulfilled' ? shapeSettled.value : { packaging: '' };
+    const guess = guessSettled.status === 'fulfilled' ? guessSettled.value : null;
+
+    // Merge: a value already typed wins, then the printed label,
+    // then the shape, then the guess.
+    let localPackaging = packagingType;
+    let localMaterials = materialsText;
+    let localProduct = productName;
+    const labelText = label.labelText;
+    const sources: string[] = [];
+    if (!localPackaging) {
+      if (label.packaging) {
+        localPackaging = label.packaging;
+        sources.push('the label');
+      } else if (shape.packaging) {
+        localPackaging = shape.packaging;
+        sources.push('the shape');
+      } else if (guess?.packaging) {
+        localPackaging = guess.packaging;
+        sources.push('Gemini');
       }
     }
+    if (!localMaterials) {
+      if (label.materials) {
+        localMaterials = label.materials;
+        if (!sources.includes('the label')) sources.push('the label');
+      } else if (guess?.material) {
+        localMaterials = guess.material;
+        setMaterialGuess(guess.material);
+        if (!sources.includes('Gemini')) sources.push('Gemini');
+      }
+    }
+    const geminiFailed = !guess || (!guess.material && !guess.packaging);
 
     // A product name is needed for the scan to skip AI vision, so
     // fall back to the label's first line — but only if it looks
@@ -352,6 +393,8 @@ export default function ScanPage() {
       );
     } else if (localPackaging) {
       setAutoStatus('Packaging found automatically. Add the material below if you know it.');
+    } else if (localMaterials) {
+      setAutoStatus('Material guessed automatically. Add the packaging type below if you know it.');
     } else {
       setAutoStatus('Could not read the photo automatically. Enter the details below.');
     }

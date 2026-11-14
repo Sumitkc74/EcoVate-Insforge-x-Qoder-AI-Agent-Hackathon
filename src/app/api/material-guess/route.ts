@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { guessMaterialWithGroq } from '@/lib/groq-vision';
+import { guessMaterialAndPackagingWithGroq } from '@/lib/groq-vision';
 import { serverDb } from '@/lib/insforge';
 import { requireUser, overAttemptCap, logAttempt, unauthorizedResponse } from '@/lib/server-auth';
 
@@ -24,6 +24,22 @@ const MATERIALS = [
   'mixed plastic',
 ] as const;
 
+// The packaging types the guess may return. Same words the scan
+// page's label reader looks for, so a guess and a label agree on
+// the vocabulary. The on-device shape detector only ever suggests
+// "bottle", and it cannot see clear packaging at all, so the guess
+// is the packaging detector for clear bottles, jars and the like.
+const PACKAGING_TYPES = [
+  'bottle',
+  'jar',
+  'can',
+  'box',
+  'bag',
+  'carton',
+  'wrapper',
+  'container',
+] as const;
+
 export async function GET() {
   return NextResponse.json({ ok: true, configured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) });
 }
@@ -36,10 +52,11 @@ export async function POST(request: NextRequest) {
   const userId = user.id;
 
   // Daily cap on guesses: 30/day signed in, 10/day for guests.
-  // The scan page calls this on every photo whose material is
-  // unknown, so without a cap a guest could burn the Gemini/Groq
-  // quota with repeated guesses and never scan once. Guests get
-  // more guesses than scans (10 vs 2) because retaking a photo or
+  // The scan page calls this on every photo — the guess is now
+  // also the packaging detector for clear items the on-device
+  // shape model cannot see, so it cannot wait to find out whether
+  // the label or the shape already answered. Guests get more
+  // guesses than scans (10 vs 2) because retaking a photo or
   // comparing items is normal use — the cap bounds abuse, not that.
   const guessCap = user.isAnonymous ? 10 : 30;
   if (await overAttemptCap(userId, 'material_guess', 'user_actions', ['material_guess'], guessCap)) {
@@ -92,11 +109,12 @@ export async function POST(request: NextRequest) {
   // No Gemini key: Groq alone is still a valid attempt.
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
-    if (groqMaterial) {
+    const guess = await guessMaterialAndPackagingWithGroq(dataUrl, MATERIALS, PACKAGING_TYPES);
+    if (guess) {
       return NextResponse.json({
-        material: groqMaterial,
-        raw: groqMaterial,
+        material: guess.material,
+        packaging: guess.packaging,
+        raw: guess.material,
         source: 'groq',
         note: 'This is a model guess from appearance only — please confirm it before Analyze.',
       });
@@ -121,7 +139,7 @@ export async function POST(request: NextRequest) {
             {
               parts: [
                 {
-                  text: 'Look at this product packaging photo. Guess the single most likely material of the main packaging, choosing only from: glass, PET plastic, HDPE plastic, aluminum, steel, cardboard, paper, mixed plastic. Reply with ONLY the material name, then a short reason in parentheses, for example "PET plastic (clear thin-walled bottle)". If you cannot tell from appearance alone, reply "unknown".',
+                  text: 'Look at this product packaging photo. Guess the single most likely material of the main packaging, choosing only from: glass, PET plastic, HDPE plastic, aluminum, steel, cardboard, paper, mixed plastic. Also guess the packaging type, choosing only from: bottle, jar, can, box, bag, carton, wrapper, container. Reply with a JSON object only, for example {"material": "PET plastic", "packaging_type": "bottle", "reason": "clear thin-walled bottle"}. If you cannot tell a field from appearance alone, use "unknown" for it.',
                 },
                 { inlineData: { mimeType, data: base64 } },
               ],
@@ -147,11 +165,12 @@ export async function POST(request: NextRequest) {
       );
     }
     if (!response.ok) {
-      const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
-      if (groqMaterial) {
+      const guess = await guessMaterialAndPackagingWithGroq(dataUrl, MATERIALS, PACKAGING_TYPES);
+      if (guess) {
         return NextResponse.json({
-          material: groqMaterial,
-          raw: groqMaterial,
+          material: guess.material,
+          packaging: guess.packaging,
+          raw: guess.material,
           source: 'groq',
           note: 'Gemini was unavailable, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
         });
@@ -188,14 +207,40 @@ export async function POST(request: NextRequest) {
         ?.map((p: { text?: string }) => p.text || '')
         .join(' ')
         .trim() || '';
-    const lower = raw.toLowerCase();
-    const material = MATERIALS.find((m) => lower.startsWith(m.toLowerCase())) || null;
+    // The prompt asks for a JSON object, but the reply is free
+    // text without a JSON response mode, so parse defensively:
+    // try the object first, then fall back to the old
+    // starts-with-the-material read. A packaging guess is only
+    // trusted when it comes from the parsed object.
+    let material: string | null = null;
+    let packaging: string | null = null;
+    const objectMatch = raw.match(/\{[\s\S]*\}/);
+    if (objectMatch) {
+      try {
+        const parsed = JSON.parse(objectMatch[0]) as { material?: unknown; packaging_type?: unknown };
+        const rawMaterial = parsed.material;
+        if (typeof rawMaterial === 'string') {
+          material = MATERIALS.find((m) => m.toLowerCase() === rawMaterial.toLowerCase()) || null;
+        }
+        const rawPackaging = parsed.packaging_type;
+        if (typeof rawPackaging === 'string') {
+          packaging = PACKAGING_TYPES.find((p) => p.toLowerCase() === rawPackaging.toLowerCase()) || null;
+        }
+      } catch {
+        // Not usable JSON — fall through to the plain-text read.
+      }
+    }
     if (!material) {
-      const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
-      if (groqMaterial) {
+      const lower = raw.toLowerCase();
+      material = MATERIALS.find((m) => lower.startsWith(m.toLowerCase())) || null;
+    }
+    if (!material) {
+      const guess = await guessMaterialAndPackagingWithGroq(dataUrl, MATERIALS, PACKAGING_TYPES);
+      if (guess) {
         return NextResponse.json({
-          material: groqMaterial,
-          raw: groqMaterial,
+          material: guess.material,
+          packaging: guess.packaging,
+          raw: guess.material,
           source: 'groq',
           note: 'Gemini could not tell the material, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
         });
@@ -203,17 +248,19 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({
       material,
+      packaging,
       raw,
       source: 'gemini',
       note: 'This is a model guess from appearance only — please confirm it before Analyze.',
     });
   } catch (err) {
     console.error('Material guess error:', err);
-    const groqMaterial = await guessMaterialWithGroq(dataUrl, MATERIALS);
-    if (groqMaterial) {
+    const guess = await guessMaterialAndPackagingWithGroq(dataUrl, MATERIALS, PACKAGING_TYPES);
+    if (guess) {
       return NextResponse.json({
-        material: groqMaterial,
-        raw: groqMaterial,
+        material: guess.material,
+        packaging: guess.packaging,
+        raw: guess.material,
         source: 'groq',
         note: 'Gemini was unavailable, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
       });

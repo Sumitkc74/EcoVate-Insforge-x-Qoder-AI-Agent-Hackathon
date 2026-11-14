@@ -116,17 +116,26 @@ export async function generateIdeasWithGroq(
   return Array.isArray(ideas) ? ideas : null;
 }
 
-export async function guessMaterialWithGroq(
+export async function guessMaterialAndPackagingWithGroq(
   imageDataUrl: string,
   materials: readonly string[],
-): Promise<string | null> {
+  packagingTypes: readonly string[],
+): Promise<{ material: string; packaging: string | null } | null> {
   // Temperature 0, matching the Gemini material guess: the same
   // photo must give the same material every time. The other Groq
   // callers keep the default 0.2 — their answers are judgments
   // (verification, detail check), not a value the whole scan result
   // is derived from.
+  //
+  // The packaging type rides along because the on-device shape
+  // detector cannot see clear packaging: it called a clear bottle
+  // a "remote" at 81%, so the shape step contributes nothing for
+  // exactly the photos that need it most. The vision model can see
+  // the bottle fine, so the guess is the packaging detector for
+  // those photos. "unknown" for either field means that field was
+  // not guessable, not that the whole guess failed.
   const parsed = await callGroqVision(
-    `Look at this product packaging photo. Guess the single most likely material of the main packaging, choosing only from: ${materials.join(', ')}. Reply with a JSON object only: {"material": "<one of the list, or unknown>", "reason": "<short reason>"}.`,
+    `Look at this product packaging photo. Guess the single most likely material of the main packaging, choosing only from: ${materials.join(', ')}. Also guess the packaging type, choosing only from: ${packagingTypes.join(', ')}. Reply with a JSON object only: {"material": "<one of the list, or unknown>", "packaging_type": "<one of the list, or unknown>", "reason": "<short reason>"}.`,
     imageDataUrl,
     25000,
     0,
@@ -134,8 +143,14 @@ export async function guessMaterialWithGroq(
   if (!parsed) return null;
   const rawMaterial = parsed.material;
   if (typeof rawMaterial !== 'string') return null;
-  const found = materials.find((m) => m.toLowerCase() === rawMaterial.toLowerCase());
-  return found || null;
+  const material = materials.find((m) => m.toLowerCase() === rawMaterial.toLowerCase()) || null;
+  if (!material) return null;
+  const rawPackaging = parsed.packaging_type;
+  const packaging =
+    typeof rawPackaging === 'string'
+      ? packagingTypes.find((p) => p.toLowerCase() === rawPackaging.toLowerCase()) || null
+      : null;
+  return { material, packaging };
 }
 
 // Full packaging read (product name, materials, label text,
