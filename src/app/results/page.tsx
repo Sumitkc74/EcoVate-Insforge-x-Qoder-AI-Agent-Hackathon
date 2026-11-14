@@ -273,6 +273,11 @@ function ResultsContent() {
                       </span>
                     ))}
                   </div>
+                  {scanData.material_unknown && (
+                    <p className="text-xs text-amber-700 mt-2">
+                      The material couldn&apos;t be determined from the photo — treat the material and recyclability score as estimates.
+                    </p>
+                  )}
                 </div>
 
                 {/* Label Text */}

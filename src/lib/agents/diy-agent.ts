@@ -1,19 +1,27 @@
 /**
  * DIY Creative Agent
- * 
- * Uses Gemini 1.5 Pro with Chain of Thought prompting to generate
- * upcycling ideas based on packaging materials and type.
+ *
+ * Generates upcycling ideas for a packaging type + materials, using
+ * the free vision path: Gemini first, Groq second (same order as
+ * the material guess and the vision agent). This used to call
+ * Insforge's AI gateway (openai/gpt-4o-mini), which is paid-gated —
+ * the same path the vision agent was moved off of. Every scan and
+ * every "Get different ideas" refresh goes through here, so the
+ * gateway was billing on the app's most common action.
+ *
+ * The prompt, the idea shape, and the built-in fallback ideas are
+ * unchanged — only the model call moved. Temperature stays 0.7:
+ * ideas are suggestions, so variation is the point (it is what
+ * makes "Get different ideas" return different ideas).
  */
 
-import { ai } from '../insforge';
+import { generateIdeasWithGroq } from '../groq-vision';
 import type { DIYIdea } from '../insforge';
 
-export async function runDIYAgent(
-  packagingType: string,
-  detectedMaterials: string[]
-): Promise<{ ideas: DIYIdea[]; error: Error | null }> {
-  try {
-    const prompt = `
+const GEMINI_MODEL = 'gemini-3.8-flash';
+
+function buildPrompt(packagingType: string, detectedMaterials: string[]): string {
+  return `
 You are a creative DIY upcycling expert. Given the following packaging information:
 
 Packaging Type: ${packagingType}
@@ -26,7 +34,7 @@ For each idea, provide:
 2. Difficulty level (easy, medium, or hard)
 3. Materials needed (besides the packaging itself)
 4. Step-by-step instructions (3-5 steps)
-5. Estimated CO2 saved in kg (realistic estimate based on diverting this waste)
+5. Estimated CO2 saved in kg (realistic estimate based on diverting this waste, under 5 kg — a single project saves well under that)
 
 Think step by step about each idea and make them practical and appealing.
 
@@ -41,55 +49,91 @@ Respond ONLY with a JSON array in this exact format:
   }
 ]
 `;
+}
 
-    const response = await ai.chat.completions.create({
-      model: 'openai/gpt-4o-mini',
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
+async function generateIdeasWithGemini(
+  packagingType: string,
+  detectedMaterials: string[],
+): Promise<unknown[] | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
-      ],
-      temperature: 0.7,
-    });
-    
-    // Debug log
-    console.log('DIY Agent AI response:', JSON.stringify(response, null, 2));
-
-    // Check if response has the expected structure
-    if (!response || !response.choices || !Array.isArray(response.choices) || response.choices.length === 0) {
-      console.error('Unexpected AI response structure:', response);
-      throw new Error('Invalid AI response structure');
+        signal: AbortSignal.timeout(25000),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: buildPrompt(packagingType, detectedMaterials) }] }],
+          generationConfig: {
+            temperature: 0.7,
+            responseMimeType: 'application/json',
+          },
+        }),
+      },
+    );
+    if (!response.ok) {
+      console.error('Gemini DIY status:', response.status);
+      return null;
     }
+    const json = await response.json();
+    const raw: string =
+      json?.candidates?.[0]?.content?.parts
+        ?.map((part: { text?: string }) => part.text || '')
+        .join(' ')
+        .trim() || '';
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return null;
+    const parsed: unknown = JSON.parse(jsonMatch[0]);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    console.error('Gemini DIY error:', err);
+    return null;
+  }
+}
 
-    // Parse the response
-    const content = response.choices[0]?.message?.content || '';
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    
-    if (!jsonMatch) {
-      console.error('No JSON found in DIY response:', content);
-      throw new Error('Invalid response format from DIY Agent');
-    }
-
-    const ideas = JSON.parse(jsonMatch[0]) as DIYIdea[];
-    
-    // Validate and sanitize
-    const validatedIdeas = ideas.map(idea => ({
-      title: idea.title || 'Untitled Project',
-      difficulty: ['easy', 'medium', 'hard'].includes(idea.difficulty) 
-        ? idea.difficulty 
-        : 'medium' as const,
-      materials_needed: Array.isArray(idea.materials_needed) ? idea.materials_needed : [],
-      steps: Array.isArray(idea.steps) ? idea.steps : [],
-      estimated_co2_saved_kg: typeof idea.estimated_co2_saved_kg === 'number' 
-        ? idea.estimated_co2_saved_kg 
+// Validate and sanitize a model's ideas. The CO2 number is clamped:
+// /api/verify scores points from it (10 + CO2 x 20), so a hallucinated
+// 500 kg would mint points with no attacker involved.
+function validateIdeas(ideas: unknown): DIYIdea[] | null {
+  if (!Array.isArray(ideas) || ideas.length === 0) return null;
+  return (ideas as Record<string, unknown>[]).map((idea) => ({
+    title: typeof idea.title === 'string' && idea.title ? idea.title : 'Untitled Project',
+    difficulty: ['easy', 'medium', 'hard'].includes(idea.difficulty as string)
+      ? (idea.difficulty as 'easy' | 'medium' | 'hard')
+      : 'medium' as const,
+    materials_needed: Array.isArray(idea.materials_needed) ? (idea.materials_needed as string[]) : [],
+    steps: Array.isArray(idea.steps) ? (idea.steps as string[]) : [],
+    estimated_co2_saved_kg:
+      typeof idea.estimated_co2_saved_kg === 'number'
+        ? Math.min(Math.max(idea.estimated_co2_saved_kg, 0), 5)
         : 0.5,
-    }));
+  }));
+}
 
-    return { ideas: validatedIdeas, error: null };
+export async function runDIYAgent(
+  packagingType: string,
+  detectedMaterials: string[]
+): Promise<{ ideas: DIYIdea[]; error: Error | null }> {
+  try {
+    const geminiIdeas = validateIdeas(
+      await generateIdeasWithGemini(packagingType, detectedMaterials),
+    );
+    if (geminiIdeas) return { ideas: geminiIdeas, error: null };
+
+    const groqIdeas = validateIdeas(
+      await generateIdeasWithGroq(packagingType, detectedMaterials),
+    );
+    if (groqIdeas) return { ideas: groqIdeas, error: null };
+
+    throw new Error('Free DIY generation unavailable (Gemini and Groq both failed)');
   } catch (error) {
     console.error('DIY Agent error:', error);
-    
+
     // Return fallback ideas
     const fallbackIdeas: DIYIdea[] = [
       {

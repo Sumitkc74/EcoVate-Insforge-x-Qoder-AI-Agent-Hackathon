@@ -90,6 +90,12 @@ export interface ScanResult {
   detected_materials: string[];
   label_text: string;
   packaging_type: string;
+  // True when the material was never actually determined and
+  // 'mixed plastic' was substituted as the default (or nothing was
+  // found at all): the results page says so instead of presenting
+  // the fallback as a confident reading. Scan-time only — it is not
+  // stored on the scan row.
+  material_unknown?: boolean;
   carbon_footprint_kg: number;
   recyclability_score: number;
   material_breakdown: { material: string; percentage: number }[];

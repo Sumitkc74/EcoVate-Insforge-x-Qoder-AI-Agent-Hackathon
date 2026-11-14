@@ -64,8 +64,11 @@ export async function POST(request: NextRequest) {
     if (typeof packagingType === 'string' && packagingType) {
       insertRow.packaging_type = packagingType;
     }
+    // Clamp the stored value, not just its type: /api/verify scores
+    // points from this row (10 + CO2 x 20), so an unclamped number
+    // here mints points. A single DIY idea saves well under 5 kg.
     if (typeof estimatedCo2Saved === 'number' && Number.isFinite(estimatedCo2Saved)) {
-      insertRow.estimated_co2_saved = estimatedCo2Saved;
+      insertRow.estimated_co2_saved = Math.min(Math.max(estimatedCo2Saved, 0), 5);
     }
 
     let { data, error } = await serverDb.from('user_actions').insert([insertRow]).select().single();

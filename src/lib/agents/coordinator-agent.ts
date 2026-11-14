@@ -42,6 +42,11 @@ export async function runCoordinatorAgent(
   const startTime = Date.now();
   const errors: string[] = [];
   const partialData: Partial<ScanResult> = {};
+  // True when the material was never determined and the 'mixed
+  // plastic' default was substituted (or nothing was found): the
+  // results page says so instead of presenting the fallback as a
+  // confident reading.
+  let materialUnknown = false;
 
   try {
     const manualProduct = manual?.product_name?.trim();
@@ -54,7 +59,12 @@ export async function runCoordinatorAgent(
       console.log('Coordinator: Skipping Vision Agent, using manual details...');
       partialData.product_name = manualProduct;
       partialData.packaging_type = manualPackaging;
-      partialData.detected_materials = manualMaterials.length > 0 ? manualMaterials : ['mixed plastic'];
+      if (manualMaterials.length > 0) {
+        partialData.detected_materials = manualMaterials;
+      } else {
+        partialData.detected_materials = ['mixed plastic'];
+        materialUnknown = true;
+      }
       // Prefer the text actually read from the image; otherwise
       // keep the manual-entry note.
       partialData.label_text = manual?.label_text?.trim()
@@ -88,8 +98,12 @@ export async function runCoordinatorAgent(
         );
         partialData.product_name = manualProduct || 'Unknown';
         partialData.packaging_type = manualPackaging || 'unknown';
-        partialData.detected_materials =
-          manualMaterials.length > 0 ? manualMaterials : ['mixed plastic'];
+        if (manualMaterials.length > 0) {
+          partialData.detected_materials = manualMaterials;
+        } else {
+          partialData.detected_materials = ['mixed plastic'];
+          materialUnknown = true;
+        }
         partialData.label_text = manual?.label_text?.trim()
           ? manual.label_text.trim()
           : 'Read on-device (AI vision unavailable)';
@@ -107,8 +121,11 @@ export async function runCoordinatorAgent(
         partialData.detected_materials = merged.detected_materials;
         partialData.label_text = merged.label_text;
         partialData.packaging_type = merged.packaging_type;
+        materialUnknown = merged.detected_materials.length === 0;
       }
     }
+
+    partialData.material_unknown = materialUnknown;
 
     // Step 2 & 3: Run Research and DIY agents in PARALLEL for speed
     console.log('Coordinator: Running Research and DIY Agents in parallel...');

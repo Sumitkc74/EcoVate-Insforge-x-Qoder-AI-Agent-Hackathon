@@ -49,6 +49,60 @@ async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 
   }
 }
 
+// Text-only Groq call for the DIY agent (no image). Same shape as
+// callGroqVision but with a plain text message, and the reply parsed
+// as JSON (object or array) instead of matched as an object.
+async function callGroqText(
+  prompt: string,
+  timeoutMs = 15000,
+  temperature = 0.7,
+): Promise<unknown> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 1200,
+        temperature,
+      }),
+    });
+    if (!response.ok) return null;
+    const json = await response.json();
+    const content = json?.choices?.[0]?.message?.content || '';
+    if (typeof content !== 'string') return null;
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    return JSON.parse(match[0]) as unknown;
+  } catch (err) {
+    console.error('Groq text error:', err);
+    return null;
+  }
+}
+
+// DIY ideas from Groq, second attempt after Gemini. Asks for the
+// ideas wrapped in an object ({"ideas": [...]}) because the JSON
+// object response format cannot return a bare array.
+export async function generateIdeasWithGroq(
+  packagingType: string,
+  materials: readonly string[],
+): Promise<unknown[] | null> {
+  const parsed = await callGroqText(
+    `You are a creative DIY upcycling expert. Given this packaging — type: ${packagingType}, materials: ${materials.join(', ') || 'unknown'} — generate 3 creative upcycling ideas that transform this packaging waste into useful items. For each idea, provide: a catchy title, difficulty level (easy, medium, or hard), materials needed (besides the packaging itself), step-by-step instructions (3-5 steps), and an estimated CO2 saved in kg (realistic, under 5 kg — a single project saves well under that). Think step by step and make them practical and appealing. Reply with a JSON object only: {"ideas": [{"title": "string", "difficulty": "easy|medium|hard", "materials_needed": ["item1"], "steps": ["step 1"], "estimated_co2_saved_kg": number}]}`,
+  );
+  if (!parsed || typeof parsed !== 'object') return null;
+  const ideas = (parsed as { ideas?: unknown }).ideas;
+  return Array.isArray(ideas) ? ideas : null;
+}
+
 export async function guessMaterialWithGroq(
   imageDataUrl: string,
   materials: readonly string[],

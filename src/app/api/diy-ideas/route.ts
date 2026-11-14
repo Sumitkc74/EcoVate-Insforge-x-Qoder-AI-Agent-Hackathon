@@ -22,6 +22,8 @@ import { runDIYAgent } from '@/lib/agents/diy-agent';
 import {
   assertServiceKey,
   requireUser,
+  overAttemptCap,
+  logAttempt,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
@@ -86,7 +88,21 @@ export async function GET(request: NextRequest) {
           const buffer = Buffer.from(await imageResponse.arrayBuffer());
           const base64 = `data:${contentType};base64,${buffer.toString('base64')}`;
           const { result } = await runVisionAgent(base64);
-          if (result?.packaging_type) packagingType = result.packaging_type;
+          if (result?.packaging_type) {
+            packagingType = result.packaging_type;
+            // Store it on the 'scanned' action so the next open reads
+            // it from the database instead of re-running vision on
+            // the photo every time (old scans have no stored type).
+            try {
+              await serverDb
+                .from('user_actions')
+                .update({ packaging_type: packagingType })
+                .eq('scan_id', scanId)
+                .eq('action_type', 'scanned');
+            } catch {
+              // Best effort — the type still returns fine below.
+            }
+          }
         }
       } catch (e) {
         console.error('DIY ideas: could not read stored photo, using container:', e);
@@ -110,6 +126,26 @@ export async function GET(request: NextRequest) {
         fromStored: true,
       });
     }
+
+    // Generating ideas burns an AI call, so it is capped per day
+    // like guesses: 10 for guests, 30 signed in. Stored ideas cost
+    // nothing and are not counted — only this generation branch is.
+    // Needs the one-time SQL widening the usage_attempts CHECK to
+    // include 'diy_refresh'; until then the log fails silently and
+    // the cap cannot be enforced.
+    const refreshCap = user.isAnonymous ? 10 : 30;
+    if (await overAttemptCap(userId, 'diy_refresh', null, null, refreshCap)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: user.isAnonymous
+            ? 'Daily idea refresh limit reached (10 for guest accounts). Sign in with Google for 30 a day.'
+            : 'Daily idea refresh limit reached (30). Try again tomorrow.',
+        },
+        { status: 429 },
+      );
+    }
+    await logAttempt(userId, 'diy_refresh');
 
     const { ideas } = await runDIYAgent(packagingType, scan.materials || []);
 

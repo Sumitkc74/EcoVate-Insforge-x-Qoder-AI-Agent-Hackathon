@@ -50,6 +50,18 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // A temp id is a scan that was never saved — there is nothing to
+    // verify against, and the action insert below would fail (or
+    // dangle) on the unsaved id. Reject it here, before the cap
+    // check, so it burns no verification attempt and no AI calls.
+    // /api/actions already refuses temp ids the same way.
+    if (typeof scanId === 'string' && scanId.startsWith('temp_')) {
+      return NextResponse.json(
+        { error: 'This scan was not saved, so it cannot be verified. Please scan again.' },
+        { status: 400 },
+      );
+    }
+
     // The scan must belong to the caller when it exists. (A temp
     // scan id — a scan that was never saved — has no row, so it
     // proceeds as before.)
@@ -87,6 +99,13 @@ export async function POST(request: NextRequest) {
         ? Math.min(Math.max(clientValue, 0), 5)
         : 0.5;
     }
+    // Clamp either way: the diy_selected row is written by
+    // /api/actions from a client-supplied number, so trusting it
+    // unclamped re-opens the minting hole the fallback clamp closed
+    // (a row with 10,000 kg would score 10 + 10,000 x 20). A single
+    // DIY idea saves well under 5 kg; anything above that is a
+    // bad input, not a better project.
+    estimatedCo2Saved = Math.min(Math.max(estimatedCo2Saved, 0), 5);
 
     // Debug logging
     console.log('Verify request:', {

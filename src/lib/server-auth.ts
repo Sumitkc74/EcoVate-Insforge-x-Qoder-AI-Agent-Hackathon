@@ -306,12 +306,12 @@ export async function overDailyCap(
 //   CREATE TABLE IF NOT EXISTS public.usage_attempts (
 //     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 //     user_id UUID NOT NULL,
-//     kind TEXT NOT NULL CHECK (kind IN ('scan', 'verify', 'material_guess')),
+//     kind TEXT NOT NULL CHECK (kind IN ('scan', 'verify', 'material_guess', 'diy_refresh')),
 //     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 //   );
 //   CREATE INDEX IF NOT EXISTS usage_attempts_user_kind_created_idx
 //     ON public.usage_attempts (user_id, kind, created_at DESC);
-export type AttemptKind = 'scan' | 'verify' | 'material_guess';
+export type AttemptKind = 'scan' | 'verify' | 'material_guess' | 'diy_refresh';
 
 // Attempts in the last 24h, or null when the table does not exist
 // yet. Null means "unknown", not zero — callers fall back to the
@@ -341,16 +341,20 @@ async function countAttempts(
 
 // Like overDailyCap, but counts attempts from usage_attempts when
 // the table exists, and falls back to counting surviving rows (the
-// old behavior, hole included) when it does not.
+// old behavior, hole included) when it does not. Some kinds have no
+// legacy rows to count (diy_refresh never wrote one) — pass null
+// for those, and a missing table simply means "not over the cap"
+// until the one-time SQL creates it.
 export async function overAttemptCap(
   userId: string,
   kind: AttemptKind,
-  legacyTable: 'scans' | 'user_actions',
+  legacyTable: 'scans' | 'user_actions' | null,
   legacyTypes: string[] | null,
   cap: number,
 ): Promise<boolean> {
   const attempts = await countAttempts(userId, kind, cap);
   if (attempts !== null) return attempts >= cap;
+  if (legacyTable === null) return false;
   return overDailyCap(userId, legacyTable, legacyTypes, cap);
 }
 
