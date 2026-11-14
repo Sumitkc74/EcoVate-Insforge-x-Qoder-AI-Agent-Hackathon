@@ -265,7 +265,10 @@ export async function guestPersonalUsage(
 
 // Daily cap on AI-costly endpoints, counted from tables that already
 // exist — no new infrastructure. Returns true when this user already
-// has more than `cap` rows in the last 24 hours.
+// has `cap` rows in the last 24 hours, i.e. the next one would be
+// number cap+1. (It used to be `> cap`, which allowed one extra
+// attempt — a guest at 2/2 could still scan a third time. The live
+// deletion test caught it: the third scan went through.)
 export async function overDailyCap(
   userId: string,
   table: 'scans' | 'user_actions',
@@ -284,7 +287,7 @@ export async function overDailyCap(
       ? await query.in('action_type', actionTypes)
       : await query;
     const rows = (data || []) as { created_at: string }[];
-    return rows.filter((r) => r.created_at >= since).length > cap;
+    return rows.filter((r) => r.created_at >= since).length >= cap;
   } catch {
     // A counting failure must not block a legitimate request — the
     // auth gate above already stops anonymous abuse.
@@ -347,7 +350,7 @@ export async function overAttemptCap(
   cap: number,
 ): Promise<boolean> {
   const attempts = await countAttempts(userId, kind, cap);
-  if (attempts !== null) return attempts > cap;
+  if (attempts !== null) return attempts >= cap;
   return overDailyCap(userId, legacyTable, legacyTypes, cap);
 }
 

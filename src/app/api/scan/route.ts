@@ -26,7 +26,7 @@ import {
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck7-attempts';
+export const SCAN_API_VERSION = 'imgcheck8-capfix';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
