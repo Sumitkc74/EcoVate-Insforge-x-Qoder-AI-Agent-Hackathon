@@ -15,8 +15,9 @@ import {
   updateAnonSessionName,
   readAnonSession,
   clearAnonSession,
-  type AnonSession,,
-  readApiJson} from '@/lib/client-auth';
+  type AnonSession,
+  readApiJson,
+} from '@/lib/client-auth';
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
 import {
