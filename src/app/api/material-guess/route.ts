@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guessMaterialWithGroq } from '@/lib/groq-vision';
 import { serverDb } from '@/lib/insforge';
-import { requireUser, overDailyCap, unauthorizedResponse } from '@/lib/server-auth';
+import { requireUser, overAttemptCap, logAttempt, unauthorizedResponse } from '@/lib/server-auth';
 
 // Two free attempts must fit inside the free-plan function
 // limit of 60s, so each gets 25s: Gemini first, then Groq.
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   // more guesses than scans (10 vs 2) because retaking a photo or
   // comparing items is normal use — the cap bounds abuse, not that.
   const guessCap = user.isAnonymous ? 10 : 30;
-  if (await overDailyCap(userId, 'user_actions', ['material_guess'], guessCap)) {
+  if (await overAttemptCap(userId, 'material_guess', 'user_actions', ['material_guess'], guessCap)) {
     return NextResponse.json(
       {
         success: false,
@@ -66,6 +66,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No image supplied' }, { status: 400 });
   }
   const [, mimeType, base64] = match;
+
+  // Log the attempt in the attempt table too, so the cap counts
+  // attempts even if the user_actions row below is ever deleted
+  // (delete-all-projects removes every action row). The user_actions
+  // row stays as well: it is the fallback the cap counts until the
+  // one-time SQL creates usage_attempts.
+  await logAttempt(userId, 'material_guess');
 
   // Log the attempt so the cap above can count it. The row carries
   // no points and no scan, and History filters by action type, so

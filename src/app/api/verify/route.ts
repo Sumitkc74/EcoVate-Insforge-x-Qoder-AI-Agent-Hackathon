@@ -12,7 +12,8 @@ import { uploadImage } from '@/lib/storage';
 import {
   assertServiceKey,
   requireUser,
-  overDailyCap,
+  overAttemptCap,
+  logAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -98,9 +99,10 @@ export async function POST(request: NextRequest) {
 
     // Daily cap on verifications: 30/day signed in, 2/day anonymous.
     // Each attempt burns AI quota, so an account cannot script
-    // unlimited verifications.
+    // unlimited verifications. The cap counts attempts, not
+    // surviving result rows — deleting a project used to refund it.
     const verifyCap = user.isAnonymous ? 2 : 30;
-    if (await overDailyCap(userId, 'user_actions', ['diy_completed', 'diy_pending', 'diy_failed'], verifyCap)) {
+    if (await overAttemptCap(userId, 'verify', 'user_actions', ['diy_completed', 'diy_pending', 'diy_failed'], verifyCap)) {
       return NextResponse.json(
         {
           success: false,
@@ -121,6 +123,13 @@ export async function POST(request: NextRequest) {
         { status: 429 },
       );
     }
+
+    // Log the attempt now that both caps passed: the verification
+    // burns AI quota whether it later succeeds or its row is
+    // deleted, so the cap counts attempts. Until the one-time SQL
+    // creates usage_attempts the log fails silently and the cap
+    // falls back to counting result rows.
+    await logAttempt(userId, 'verify');
 
     // Convert image to base64 for AI processing
     const bytes = await imageFile.arrayBuffer();

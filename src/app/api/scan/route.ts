@@ -13,7 +13,8 @@ import { checkDetailsAgainstPhoto, DETAIL_MISMATCH_CONFIDENCE } from '@/lib/deta
 import {
   assertServiceKey,
   requireUser,
-  overDailyCap,
+  overAttemptCap,
+  logAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -25,7 +26,7 @@ import {
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck6-deterministic';
+export const SCAN_API_VERSION = 'imgcheck7-attempts';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -131,8 +132,10 @@ export async function POST(request: NextRequest) {
 
     // Daily cap on scans: 30/day signed in, 2/day anonymous. Each
     // scan burns AI quota, so an account cannot script unlimited scans.
+    // The cap counts attempts, not surviving scans rows — deleting a
+    // scan used to refund the quota (scan, delete, scan again).
     const scanCap = user.isAnonymous ? 2 : 30;
-    if (await overDailyCap(userId, 'scans', null, scanCap)) {
+    if (await overAttemptCap(userId, 'scan', 'scans', null, scanCap)) {
       return NextResponse.json(
         {
           success: false,
@@ -153,6 +156,13 @@ export async function POST(request: NextRequest) {
         { status: 429 },
       );
     }
+
+    // Log the attempt now that both caps passed: the scan burns AI
+    // quota whether it later succeeds or its rows are deleted, so
+    // the cap counts attempts. Until the one-time SQL creates
+    // usage_attempts the log fails silently and the cap falls back
+    // to counting scans rows.
+    await logAttempt(userId, 'scan');
 
     // Optional manual details: when product name + packaging type are
     // supplied, the coordinator skips Vision AI entirely (free-plan path).

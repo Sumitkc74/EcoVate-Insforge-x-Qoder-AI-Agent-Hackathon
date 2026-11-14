@@ -170,6 +170,22 @@ export async function guestPoolUsed(): Promise<number> {
       .filter((u) => typeof u.email === 'string' && u.email.endsWith('@anon.ecovate.local'))
       .map((u) => u.id);
     if (guestIds.length === 0) return 0;
+    // Attempts first: a scan or verification counts against the pool
+    // even after its rows are deleted (see countAttempts).
+    const { data: attempts, error: attemptsError } = await serverDb
+      .from('usage_attempts')
+      .select('id, created_at')
+      .in('user_id', guestIds)
+      .in('kind', ['scan', 'verify'])
+      .order('created_at', { ascending: false })
+      .limit(GUEST_DAILY_POOL + 1);
+    if (!attemptsError) {
+      return ((attempts || []) as { created_at: string }[]).filter(
+        (r) => r.created_at >= since,
+      ).length;
+    }
+    // Table missing (one-time SQL not run yet): fall back to
+    // counting surviving rows, the old behavior.
     const [scansRes, actionsRes] = await Promise.all([
       serverDb
         .from('scans')
@@ -208,6 +224,19 @@ export async function guestPersonalUsage(
 ): Promise<{ scans: number; verifications: number }> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   try {
+    // Attempts first: deleting a scan no longer resets the "Used
+    // today" display (see countAttempts).
+    const [scanAttempts, verifyAttempts] = await Promise.all([
+      countAttempts(userId, 'scan', 2),
+      countAttempts(userId, 'verify', 2),
+    ]);
+    if (scanAttempts !== null && verifyAttempts !== null) {
+      return {
+        scans: Math.min(scanAttempts, 2),
+        verifications: Math.min(verifyAttempts, 2),
+      };
+    }
+    // Table missing: fall back to surviving rows, the old behavior.
     const [scansRes, actionsRes] = await Promise.all([
       serverDb
         .from('scans')
@@ -260,6 +289,90 @@ export async function overDailyCap(
     // A counting failure must not block a legitimate request — the
     // auth gate above already stops anonymous abuse.
     return false;
+  }
+}
+
+// Attempt log: one row per AI-costly attempt, in a table user-facing
+// delete never touches. The daily caps used to count surviving rows
+// (scans rows, verification result rows), so deleting a scan or a
+// project refunded the quota — scan, delete, scan again, unlimited.
+// The caps now count attempts instead; the old tables are only the
+// fallback until the one-time SQL creates usage_attempts.
+//
+// One-time SQL (Insforge SQL Editor):
+//   CREATE TABLE IF NOT EXISTS public.usage_attempts (
+//     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//     user_id UUID NOT NULL,
+//     kind TEXT NOT NULL CHECK (kind IN ('scan', 'verify', 'material_guess')),
+//     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+//   );
+//   CREATE INDEX IF NOT EXISTS usage_attempts_user_kind_created_idx
+//     ON public.usage_attempts (user_id, kind, created_at DESC);
+export type AttemptKind = 'scan' | 'verify' | 'material_guess';
+
+// Attempts in the last 24h, or null when the table does not exist
+// yet. Null means "unknown", not zero — callers fall back to the
+// legacy surviving-rows count instead of treating it as no usage.
+async function countAttempts(
+  userId: string,
+  kind: AttemptKind,
+  cap: number,
+): Promise<number | null> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const { data, error } = await serverDb
+      .from('usage_attempts')
+      .select('id, created_at')
+      .eq('user_id', userId)
+      .eq('kind', kind)
+      .order('created_at', { ascending: false })
+      .limit(cap + 1);
+    if (error) return null;
+    return ((data || []) as { created_at: string }[]).filter(
+      (r) => r.created_at >= since,
+    ).length;
+  } catch {
+    return null;
+  }
+}
+
+// Like overDailyCap, but counts attempts from usage_attempts when
+// the table exists, and falls back to counting surviving rows (the
+// old behavior, hole included) when it does not.
+export async function overAttemptCap(
+  userId: string,
+  kind: AttemptKind,
+  legacyTable: 'scans' | 'user_actions',
+  legacyTypes: string[] | null,
+  cap: number,
+): Promise<boolean> {
+  const attempts = await countAttempts(userId, kind, cap);
+  if (attempts !== null) return attempts > cap;
+  return overDailyCap(userId, legacyTable, legacyTypes, cap);
+}
+
+// Record an attempt AFTER the cap checks pass and BEFORE the AI work
+// runs: the attempt burned quota whether or not the scan or
+// verification later succeeds or its rows are deleted. A failure to
+// log is swallowed (and logged server-side) — the request still
+// proceeds, and its cap falls back to surviving rows until the
+// one-time SQL creates the table.
+export async function logAttempt(userId: string, kind: AttemptKind): Promise<void> {
+  try {
+    const { error } = await serverDb
+      .from('usage_attempts')
+      .insert([{ user_id: userId, kind }]);
+    if (error) {
+      console.error(
+        'Attempt log error (caps fall back to surviving rows until usage_attempts exists):',
+        error,
+      );
+    }
+  } catch (err) {
+    console.error(
+      'Attempt log error (caps fall back to surviving rows until usage_attempts exists):',
+      err,
+    );
   }
 }
 
