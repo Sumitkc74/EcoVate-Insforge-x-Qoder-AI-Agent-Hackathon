@@ -267,8 +267,16 @@ export default function ScanPage() {
           image.onerror = () => reject(new Error('Could not load image'));
           image.src = previewImage;
         });
+        // Only packaging-plausible shapes are shown or trusted. The
+        // detector's 80 classes include things that are never
+        // packaging — it once called a clear bottle a "remote" at
+        // 84% — and showing that as a confident label is worse than
+        // showing nothing. When nothing plausible is found the
+        // "couldn't read the photo" fallback covers it, and the
+        // imageCheck section simply does not render.
+        const PACKAGING_SHAPES = new Set(['bottle', 'cup', 'bowl', 'wine glass', 'vase']);
         const predictions = (await model.detect(img))
-          .filter((pred) => pred.score >= 0.5)
+          .filter((pred) => pred.score >= 0.5 && PACKAGING_SHAPES.has(pred.class))
           .sort((a, b) => b.score - a.score);
         if (predictions.length > 0) {
           setImageCheck(predictions.map((pred) => `${pred.class} (${Math.round(pred.score * 100)}%)`).join(', '));

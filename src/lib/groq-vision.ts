@@ -10,7 +10,7 @@
 
 const GROQ_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b';
 
-async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 25000): Promise<Record<string, unknown> | null> {
+async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 25000, temperature = 0.2): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   try {
@@ -34,7 +34,7 @@ async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 
         ],
         response_format: { type: 'json_object' },
         max_completion_tokens: 300,
-        temperature: 0.2,
+        temperature,
       }),
     });
     if (!response.ok) return null;
@@ -53,9 +53,16 @@ export async function guessMaterialWithGroq(
   imageDataUrl: string,
   materials: readonly string[],
 ): Promise<string | null> {
+  // Temperature 0, matching the Gemini material guess: the same
+  // photo must give the same material every time. The other Groq
+  // callers keep the default 0.2 — their answers are judgments
+  // (verification, detail check), not a value the whole scan result
+  // is derived from.
   const parsed = await callGroqVision(
     `Look at this product packaging photo. Guess the single most likely material of the main packaging, choosing only from: ${materials.join(', ')}. Reply with a JSON object only: {"material": "<one of the list, or unknown>", "reason": "<short reason>"}.`,
     imageDataUrl,
+    25000,
+    0,
   );
   if (!parsed) return null;
   const rawMaterial = parsed.material;

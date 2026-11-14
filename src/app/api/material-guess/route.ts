@@ -120,6 +120,14 @@ export async function POST(request: NextRequest) {
               ],
             },
           ],
+          // Deterministic: the same photo must give the same material
+          // every time. The default temperature samples randomly, so
+          // one photo read PET on one run and mixed plastic on the
+          // next — and the recyclability score follows the material,
+          // so the whole result flipped with it. Temperature 0 makes
+          // the guess consistent; it does not make it right, so the
+          // confirm-before-Analyze step stays the safety net.
+          generationConfig: { temperature: 0 },
         }),
         signal: AbortSignal.timeout(25000),
       },
