@@ -51,49 +51,57 @@ Respond ONLY with a JSON array in this exact format:
 `;
 }
 
+// One retry on a transient failure (Gemini 503s and timeouts are
+// its known flakiness): the first attempt usually fails fast
+// enough that a second try still fits the 60s route limit, and it
+// costs nothing when the first attempt succeeds.
 async function generateIdeasWithGemini(
   packagingType: string,
   detectedMaterials: string[],
 ): Promise<unknown[] | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: buildPrompt(packagingType, detectedMaterials) }] }],
-          generationConfig: {
-            temperature: 0.7,
-            responseMimeType: 'application/json',
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
           },
-        }),
-      },
-    );
-    if (!response.ok) {
-      console.error('Gemini DIY status:', response.status);
-      return null;
+          signal: AbortSignal.timeout(25000),
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: buildPrompt(packagingType, detectedMaterials) }] }],
+            generationConfig: {
+              temperature: 0.7,
+              responseMimeType: 'application/json',
+            },
+          }),
+        },
+      );
+      if (!response.ok) {
+        console.error('Gemini DIY status:', response.status);
+      } else {
+        const json = await response.json();
+        const raw: string =
+          json?.candidates?.[0]?.content?.parts
+            ?.map((part: { text?: string }) => part.text || '')
+            .join(' ')
+            .trim() || '';
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed: unknown = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      }
+    } catch (err) {
+      console.error('Gemini DIY error:', err);
     }
-    const json = await response.json();
-    const raw: string =
-      json?.candidates?.[0]?.content?.parts
-        ?.map((part: { text?: string }) => part.text || '')
-        .join(' ')
-        .trim() || '';
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return null;
-    const parsed: unknown = JSON.parse(jsonMatch[0]);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch (err) {
-    console.error('Gemini DIY error:', err);
-    return null;
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
   }
+  return null;
 }
 
 // Validate and sanitize a model's ideas. The CO2 number is clamped:

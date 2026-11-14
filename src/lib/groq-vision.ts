@@ -52,6 +52,18 @@ async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 
 // Text-only Groq call for the DIY agent (no image). Same shape as
 // callGroqVision but with a plain text message, and the reply parsed
 // as JSON (object or array) instead of matched as an object.
+//
+// Two things differ from the vision call, both because this answer
+// is long (3 detailed ideas as JSON) and the model thinks:
+// - 4096 output tokens, not 1200: reasoning tokens count against
+//   the budget, and 1200 left no room for the answer once the
+//   model had thought first — the reply came back truncated and
+//   unparseable, so the Groq fallback almost never saved a DIY
+//   call. That is the most likely reason refreshes failed about
+//   half the time under rapid use.
+// - reasoning_effort 'none': this is a structured JSON call, not
+//   a reasoning task — thinking just burns the budget. (qwen3
+//   models support 'none' to disable reasoning.)
 async function callGroqText(
   prompt: string,
   timeoutMs = 15000,
@@ -71,7 +83,8 @@ async function callGroqText(
         model: GROQ_MODEL,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
-        max_completion_tokens: 1200,
+        max_completion_tokens: 4096,
+        reasoning_effort: 'none',
         temperature,
       }),
     });
@@ -96,7 +109,7 @@ export async function generateIdeasWithGroq(
   materials: readonly string[],
 ): Promise<unknown[] | null> {
   const parsed = await callGroqText(
-    `You are a creative DIY upcycling expert. Given this packaging — type: ${packagingType}, materials: ${materials.join(', ') || 'unknown'} — generate 3 creative upcycling ideas that transform this packaging waste into useful items. For each idea, provide: a catchy title, difficulty level (easy, medium, or hard), materials needed (besides the packaging itself), step-by-step instructions (3-5 steps), and an estimated CO2 saved in kg (realistic, under 5 kg — a single project saves well under that). Think step by step and make them practical and appealing. Reply with a JSON object only: {"ideas": [{"title": "string", "difficulty": "easy|medium|hard", "materials_needed": ["item1"], "steps": ["step 1"], "estimated_co2_saved_kg": number}]}`,
+    `You are a creative DIY upcycling expert. Given this packaging — type: ${packagingType}, materials: ${materials.join(', ') || 'unknown'} — generate 3 creative upcycling ideas that transform this packaging waste into useful items. For each idea, provide: a catchy title, difficulty level (easy, medium, or hard), materials needed (besides the packaging itself), step-by-step instructions (3-5 steps), and an estimated CO2 saved in kg (realistic, under 5 kg — a single project saves well under that). Make them practical and appealing. Reply with a JSON object only: {"ideas": [{"title": "string", "difficulty": "easy|medium|hard", "materials_needed": ["item1"], "steps": ["step 1"], "estimated_co2_saved_kg": number}]}`,
   );
   if (!parsed || typeof parsed !== 'object') return null;
   const ideas = (parsed as { ideas?: unknown }).ideas;
