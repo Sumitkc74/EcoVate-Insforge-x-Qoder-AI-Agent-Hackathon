@@ -159,6 +159,19 @@ export async function POST(request: NextRequest) {
     );
 
     if (response.status === 429) {
+      // Quota is not unavailability: Groq is the second attempt,
+      // and it answers while Gemini is rate-limited. Only tell the
+      // user the quota is reached when both models are out.
+      const guess = await guessMaterialAndPackagingWithGroq(dataUrl, MATERIALS, PACKAGING_TYPES);
+      if (guess) {
+        return NextResponse.json({
+          material: guess.material,
+          packaging: guess.packaging,
+          raw: guess.material,
+          source: 'groq',
+          note: 'Gemini free-tier quota reached, so this guess comes from Groq instead. It is a model guess from appearance only — please confirm it before Analyze.',
+        });
+      }
       return NextResponse.json(
         { error: 'Gemini free-tier quota reached. Try again later, or enter the material yourself.' },
         { status: 429 },
