@@ -7,8 +7,21 @@
 
 import { createClient } from '@insforge/sdk';
 
-// InsForge backend configuration
-const INSFORGE_URL = process.env.NEXT_PUBLIC_INSFORGE_URL || 'https://8t37jscx.us-west.insforge.app';
+// InsForge backend configuration. There is deliberately NO
+// fallback URL: the old hard-coded fallback pointed at a dead
+// backend, so a deploy without the env var silently broke
+// everything at once (all Google users 401, dead photo URLs).
+// Fail loudly at boot instead — the var is set in Vercel
+// (Production), and the build sets it too.
+const INSFORGE_URL = (() => {
+  const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
+  if (!url) {
+    throw new Error(
+      'NEXT_PUBLIC_INSFORGE_URL is not set — set it in Vercel (Production) to the Insforge backend URL.',
+    );
+  }
+  return url;
+})();
 const INSFORGE_ANON_KEY = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
 
 // Create InsForge client instance
@@ -96,8 +109,10 @@ export interface ScanResult {
   // the fallback as a confident reading. Scan-time only — it is not
   // stored on the scan row.
   material_unknown?: boolean;
-  carbon_footprint_kg: number;
-  recyclability_score: number;
+  // Null when the research step failed: there is no figure, and the
+  // results page says so instead of showing a fabricated 0.
+  carbon_footprint_kg: number | null;
+  recyclability_score: number | null;
   material_breakdown: { material: string; percentage: number }[];
   diy_ideas: DIYIdea[];
 }

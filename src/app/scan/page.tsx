@@ -235,10 +235,21 @@ export default function ScanPage() {
               [/\bpaper\b/, 'paper'],
               [/\bplastic\b/, 'mixed plastic'],
             ];
-            materials = materialWords
+            const matchedMaterials = materialWords
               .filter(([pattern]) => pattern.test(lower))
-              .map(([, material]) => material)
-              .join(', ');
+              .map(([, material]) => material);
+            // A specific plastic and the generic default are the same
+            // claim twice: a label reading "PET plastic" used to yield
+            // "PET plastic, mixed plastic", which split the
+            // recyclability 50/50 and scored a PET bottle at ~63%
+            // instead of 85%. Keep only the specific one.
+            const specificPlastic = matchedMaterials.some(
+              (m) => m === 'PET plastic' || m === 'HDPE plastic',
+            );
+            materials = (specificPlastic
+              ? matchedMaterials.filter((m) => m !== 'mixed plastic')
+              : matchedMaterials
+            ).join(', ');
           }
           return { labelText, packaging, materials };
         } finally {
@@ -367,8 +378,14 @@ export default function ScanPage() {
     // A product name is needed for the scan to skip AI vision, so
     // fall back to the label's first line — but only if it looks
     // like real words. Garbled OCR noise (e.g. "5 - a" from a
-    // watermark) must never become the product name; in that case
-    // the packaging type itself is the product name.
+    // watermark) must never become the product name. And never
+    // invent one from the packaging type: "Bottle" as a product
+    // name sent the scan down the manual path, so AI vision — the
+    // only step that could read a real brand name — never ran, and
+    // the results page then claimed the details were "entered
+    // manually". Leave it blank instead: the scan goes through
+    // vision, which honestly returns "Unknown" when nothing can
+    // be read.
     if (!localProduct) {
       const firstLine = labelText.split('\n').map((line) => line.trim()).find(Boolean) || '';
       const letters = firstLine.replace(/[^a-z]/gi, '').length;
@@ -376,9 +393,7 @@ export default function ScanPage() {
         firstLine.length >= 3 &&
         /[a-z]{4,}/i.test(firstLine) &&
         letters / firstLine.length >= 0.6;
-      localProduct = looksLikeWords
-        ? firstLine.slice(0, 40)
-        : (localPackaging ? localPackaging.charAt(0).toUpperCase() + localPackaging.slice(1) : '');
+      localProduct = looksLikeWords ? firstLine.slice(0, 40) : '';
     }
     // Manual edits win: only fill in fields the user has not
     // typed in themselves while the check was running.
@@ -389,7 +404,8 @@ export default function ScanPage() {
     if (localPackaging && localMaterials) {
       setAutoStatus(
         `Filled in automatically from ${sources.join(' and ')}. Check them below and correct anything wrong.` +
-        (geminiFailed ? ' Gemini was unavailable, so this uses the earlier result instead.' : ''),
+        (geminiFailed ? ' Gemini was unavailable, so this uses the earlier result instead.' : '') +
+        (!localProduct ? ' The product name will be read by AI vision when you tap Analyze.' : ''),
       );
     } else if (localPackaging) {
       setAutoStatus('Packaging found automatically. Add the material below if you know it.');
@@ -509,6 +525,12 @@ export default function ScanPage() {
         } : {}),
         ...(result.visionFallback ? {
           visionFallback: result.visionFallback,
+        } : {}),
+        // A scan can succeed with parts failed (research or DIY):
+        // the errors used to be dropped here, so the results page
+        // showed the partial figures as a full success.
+        ...(result.errors && result.errors.length > 0 ? {
+          errors: JSON.stringify(result.errors),
         } : {}),
       });
       

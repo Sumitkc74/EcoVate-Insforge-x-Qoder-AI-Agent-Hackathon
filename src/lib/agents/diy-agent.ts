@@ -60,9 +60,12 @@ Respond ONLY with a JSON array in this exact format:
 async function generateIdeasWithGemini(
   packagingType: string,
   detectedMaterials: string[],
+  deadlineMs?: number,
 ): Promise<unknown[] | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
+  const remainingMs = () =>
+    deadlineMs === undefined ? Infinity : deadlineMs - Date.now();
   for (let attempt = 0; attempt < 2; attempt++) {
     const attemptStarted = Date.now();
     try {
@@ -74,7 +77,12 @@ async function generateIdeasWithGemini(
             'Content-Type': 'application/json',
             'x-goog-api-key': apiKey,
           },
-          signal: AbortSignal.timeout(25000),
+          // Clamped to the scan's shared budget: an unclamped 25s
+          // attempt (plus a retry) after a 40s vision step is what
+          // pushed scans past the route's 60s limit.
+          signal: AbortSignal.timeout(
+            Math.min(25000, Math.max(5000, remainingMs() - 5000)),
+          ),
           body: JSON.stringify({
             contents: [{ parts: [{ text: buildPrompt(packagingType, detectedMaterials) }] }],
             generationConfig: {
@@ -104,7 +112,8 @@ async function generateIdeasWithGemini(
     }
     // Retry only a fast failure (see above): a slow timeout means
     // the model is busy, and another 25s would blow the 60s budget.
-    if (attempt === 0 && Date.now() - attemptStarted < 10000) {
+    // Also only when the shared budget still has room for it.
+    if (attempt === 0 && Date.now() - attemptStarted < 10000 && remainingMs() > 25000) {
       await new Promise((r) => setTimeout(r, 1500));
     } else {
       break;
@@ -134,13 +143,24 @@ function validateIdeas(ideas: unknown): DIYIdea[] | null {
 
 export async function runDIYAgent(
   packagingType: string,
-  detectedMaterials: string[]
+  detectedMaterials: string[],
+  deadlineMs?: number,
 ): Promise<{ ideas: DIYIdea[]; error: Error | null }> {
   try {
+    const remainingMs = () =>
+      deadlineMs === undefined ? Infinity : deadlineMs - Date.now();
     const geminiIdeas = validateIdeas(
-      await generateIdeasWithGemini(packagingType, detectedMaterials),
+      await generateIdeasWithGemini(packagingType, detectedMaterials, deadlineMs),
     );
     if (geminiIdeas) return { ideas: geminiIdeas, error: null };
+
+    // Too little time left in the scan's budget for a second model
+    // call: fall through to the built-in fallback ideas (with the
+    // error, so the scan says so) instead of starting a Groq call
+    // Vercel would kill mid-flight.
+    if (remainingMs() <= 12000) {
+      throw new Error('DIY generation ran out of time (Gemini failed and too little time remains for a second attempt)');
+    }
 
     const groqIdeas = validateIdeas(
       await generateIdeasWithGroq(packagingType, detectedMaterials),

@@ -17,9 +17,9 @@ export interface VisionResult {
   confidence: number;
 }
 
-export async function runVisionAgent(imageBase64: string): Promise<{ result: VisionResult | null; error: Error | null }> {
+export async function runVisionAgent(imageBase64: string, deadlineMs?: number): Promise<{ result: VisionResult | null; error: Error | null }> {
   try {
-    const result = await analyzePackagingWithFreeVision(imageBase64);
+    const result = await analyzePackagingWithFreeVision(imageBase64, deadlineMs);
     return { result, error: null };
   } catch (error) {
     console.error('Vision Agent error:', error);

@@ -55,8 +55,12 @@ export async function runResearchAgent(
   try {
     const estimatedWeight = estimateWeight(packagingType);
     
-    // Calculate material breakdown
-    const materialBreakdown = detectedMaterials.map(material => {
+    // Calculate material breakdown. The shares must sum to 100:
+    // Math.round(100 / n) each gave 33/33/33 = 99 for three
+    // materials. Floor shares, and give the remainder to the first.
+    const shareBase = Math.floor(100 / detectedMaterials.length);
+    const shareRemainder = 100 - shareBase * detectedMaterials.length;
+    const materialBreakdown = detectedMaterials.map((material, index) => {
       const normalizedMaterial = material.toLowerCase();
       let matchedData = CARBON_DATABASE['mixed plastic']; // default
       
@@ -69,7 +73,7 @@ export async function runResearchAgent(
       }
       
       // Estimate percentage (equal distribution for simplicity)
-      const percentage = Math.round(100 / detectedMaterials.length);
+      const percentage = shareBase + (index === 0 ? shareRemainder : 0);
       const weight = estimatedWeight * (percentage / 100);
       
       return {

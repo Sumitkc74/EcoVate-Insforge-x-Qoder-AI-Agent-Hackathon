@@ -19,8 +19,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from './insforge';
 
-const INSFORGE_URL =
-  process.env.NEXT_PUBLIC_INSFORGE_URL || 'https://8t37jscx.us-west.insforge.app';
+// No fallback URL here: the old hard-coded fallback pointed at a
+// dead backend, so a deploy without the env var silently broke
+// session validation for every Google user. Fail loudly instead.
+const INSFORGE_URL = (() => {
+  const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
+  if (!url) {
+    throw new Error(
+      'NEXT_PUBLIC_INSFORGE_URL is not set — set it in Vercel (Production) to the Insforge backend URL.',
+    );
+  }
+  return url;
+})();
 
 // Thrown when the server itself is misconfigured (the service key is
 // missing). Distinct from an auth failure so routes can answer 503.
@@ -171,18 +181,29 @@ export async function guestPoolUsed(): Promise<number> {
       .map((u) => u.id);
     if (guestIds.length === 0) return 0;
     // Attempts first: a scan or verification counts against the pool
-    // even after its rows are deleted (see countAttempts).
+    // even after its rows are deleted (see countAttempts). Guesses
+    // and DIY refreshes count too — they used to be outside the
+    // pool, so minting a fresh guest bought 10 more of each with no
+    // aggregate limit, and each one burns AI quota.
     const { data: attempts, error: attemptsError } = await serverDb
       .from('usage_attempts')
       .select('id, created_at')
       .in('user_id', guestIds)
-      .in('kind', ['scan', 'verify'])
+      .in('kind', ['scan', 'verify', 'material_guess', 'diy_refresh'])
       .order('created_at', { ascending: false })
       .limit(GUEST_DAILY_POOL + 1);
     if (!attemptsError) {
       return ((attempts || []) as { created_at: string }[]).filter(
         (r) => r.created_at >= since,
       ).length;
+    }
+    // A missing table (one-time SQL not run yet) falls back to
+    // counting surviving rows, the old behavior. Any other counting
+    // failure fails CLOSED: returning 0 would silently disable the
+    // shared pool and let guests burn unlimited AI quota.
+    if (!isMissingTableError(attemptsError)) {
+      console.error('Guest pool count failed (fail-closed):', attemptsError);
+      return GUEST_DAILY_POOL;
     }
     // Table missing (one-time SQL not run yet): fall back to
     // counting surviving rows, the old behavior.
@@ -197,7 +218,7 @@ export async function guestPoolUsed(): Promise<number> {
         .from('user_actions')
         .select('id, created_at')
         .in('user_id', guestIds)
-        .in('action_type', ['diy_completed', 'diy_pending', 'diy_failed'])
+        .in('action_type', ['diy_completed', 'diy_pending', 'diy_failed', 'material_guess'])
         .order('created_at', { ascending: false })
         .limit(200),
     ]);
@@ -208,9 +229,10 @@ export async function guestPoolUsed(): Promise<number> {
       (r) => r.created_at >= since,
     ).length;
     return scans + actions;
-  } catch {
-    // A counting failure must not block a legitimate request.
-    return 0;
+  } catch (err) {
+    // A counting failure must not silently disable the pool.
+    console.error('Guest pool count failed (fail-closed):', err);
+    return GUEST_DAILY_POOL;
   }
 }
 
@@ -230,7 +252,7 @@ export async function guestPersonalUsage(
       countAttempts(userId, 'scan', 2),
       countAttempts(userId, 'verify', 2),
     ]);
-    if (scanAttempts !== null && verifyAttempts !== null) {
+    if (typeof scanAttempts === 'number' && typeof verifyAttempts === 'number') {
       return {
         scans: Math.min(scanAttempts, 2),
         verifications: Math.min(verifyAttempts, 2),
@@ -288,10 +310,13 @@ export async function overDailyCap(
       : await query;
     const rows = (data || []) as { created_at: string }[];
     return rows.filter((r) => r.created_at >= since).length >= cap;
-  } catch {
-    // A counting failure must not block a legitimate request — the
-    // auth gate above already stops anonymous abuse.
-    return false;
+  } catch (err) {
+    // Fail CLOSED: a counting failure used to return "not over the
+    // cap", silently disabling every daily cap until someone
+    // noticed. A transient DB error now blocks one AI-costly
+    // attempt instead of opening unlimited ones.
+    console.error('Daily cap count failed (fail-closed):', err);
+    return true;
   }
 }
 
@@ -313,14 +338,25 @@ export async function overDailyCap(
 //     ON public.usage_attempts (user_id, kind, created_at DESC);
 export type AttemptKind = 'scan' | 'verify' | 'material_guess' | 'diy_refresh';
 
-// Attempts in the last 24h, or null when the table does not exist
-// yet. Null means "unknown", not zero — callers fall back to the
-// legacy surviving-rows count instead of treating it as no usage.
+// Whether an SDK/DB error means "the usage_attempts table does not
+// exist yet" (the one-time SQL was never run) as opposed to a real
+// failure. Only the missing-table case may fall back to counting
+// surviving rows; every other counting failure fails closed, so a
+// DB hiccup never silently disables the caps.
+function isMissingTableError(err: unknown): boolean {
+  const text = `${(err as { code?: unknown })?.code || ''} ${(err as { message?: unknown })?.message || ''} ${String(err)}`;
+  return /42P01|PGRST205|does not exist|relation .* not.*exist|Could not find the table/i.test(text);
+}
+
+// Attempts in the last 24h; 'missing' when the table does not exist
+// yet, 'error' on any other counting failure. 'missing' means
+// "unknown, fall back to the legacy surviving-rows count"; 'error'
+// means "fail closed" — callers must not treat it as no usage.
 async function countAttempts(
   userId: string,
   kind: AttemptKind,
   cap: number,
-): Promise<number | null> {
+): Promise<number | 'missing' | 'error'> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   try {
     const { data, error } = await serverDb
@@ -330,21 +366,24 @@ async function countAttempts(
       .eq('kind', kind)
       .order('created_at', { ascending: false })
       .limit(cap + 1);
-    if (error) return null;
+    if (error) return isMissingTableError(error) ? 'missing' : 'error';
     return ((data || []) as { created_at: string }[]).filter(
       (r) => r.created_at >= since,
     ).length;
-  } catch {
-    return null;
+  } catch (err) {
+    return isMissingTableError(err) ? 'missing' : 'error';
   }
 }
 
 // Like overDailyCap, but counts attempts from usage_attempts when
 // the table exists, and falls back to counting surviving rows (the
-// old behavior, hole included) when it does not. Some kinds have no
-// legacy rows to count (diy_refresh never wrote one) — pass null
-// for those, and a missing table simply means "not over the cap"
-// until the one-time SQL creates it.
+// old behavior, hole included) only when the table does not exist
+// yet. A counting failure fails CLOSED (over the cap): the old code
+// returned "not over the cap" on any error, so one DB hiccup
+// silently disabled every cap. Some kinds have no legacy rows to
+// count (diy_refresh never wrote one) — pass null for those, and a
+// missing table simply means "not over the cap" until the one-time
+// SQL creates it.
 export async function overAttemptCap(
   userId: string,
   kind: AttemptKind,
@@ -353,7 +392,11 @@ export async function overAttemptCap(
   cap: number,
 ): Promise<boolean> {
   const attempts = await countAttempts(userId, kind, cap);
-  if (attempts !== null) return attempts >= cap;
+  if (typeof attempts === 'number') return attempts >= cap;
+  if (attempts === 'error') {
+    console.error('Attempt cap count failed (fail-closed):', kind, userId);
+    return true;
+  }
   if (legacyTable === null) return false;
   return overDailyCap(userId, legacyTable, legacyTypes, cap);
 }

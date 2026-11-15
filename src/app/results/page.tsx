@@ -40,6 +40,9 @@ function ResultsContent() {
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [detailWarning, setDetailWarning] = useState<string | null>(null);
   const [visionFallback, setVisionFallback] = useState<string | null>(null);
+  // Parts of the scan that failed (research, DIY): shown as a banner
+  // instead of presenting partial figures as a full success.
+  const [scanErrors, setScanErrors] = useState<string[]>([]);
 
   useEffect(() => {
     const dataParam = searchParams.get('data');
@@ -60,6 +63,13 @@ function ResultsContent() {
     setImageUploadError(searchParams.get('imageUploadError'));
     setDetailWarning(searchParams.get('detailWarning'));
     setVisionFallback(searchParams.get('visionFallback'));
+    try {
+      const errorsParam = searchParams.get('errors');
+      const parsed = errorsParam ? JSON.parse(errorsParam) : [];
+      setScanErrors(Array.isArray(parsed) ? parsed.filter((e): e is string => typeof e === 'string') : []);
+    } catch {
+      setScanErrors([]);
+    }
     // Deep link from History / dashboard "Add DIY": open on the DIY tab.
     if (searchParams.get('tab') === 'diy') {
       setActiveTab('diy');
@@ -211,6 +221,14 @@ function ResultsContent() {
             <p className="text-sm text-amber-600 mt-1">{visionFallback}</p>
           </div>
         )}
+        {scanErrors.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+            <p className="text-sm font-semibold text-amber-700">Some parts of this scan didn&apos;t work — the figures below are partial.</p>
+            {scanErrors.map((err, idx) => (
+              <p key={idx} className="text-sm text-amber-600 mt-1">{err}</p>
+            ))}
+          </div>
+        )}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-1">{scanData.product_name}</h2>
           <p className="text-gray-500 capitalize">{scanData.packaging_type}</p>
@@ -312,9 +330,9 @@ function ResultsContent() {
                 <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-gray-900">Carbon Footprint</h3>
-                    <span className="text-2xl font-bold text-red-600">{scanData.carbon_footprint_kg} kg</span>
+                    <span className="text-2xl font-bold text-red-600">{scanData.carbon_footprint_kg == null ? 'Unavailable' : `${scanData.carbon_footprint_kg} kg`}</span>
                   </div>
-                  <p className="text-sm text-gray-600">CO2 equivalent from production</p>
+                  <p className="text-sm text-gray-600">{scanData.carbon_footprint_kg == null ? 'The research step failed for this scan, so no figure is available.' : 'CO2 equivalent from production'}</p>
                 </div>
 
                 {/* Recyclability Score */}
@@ -328,15 +346,18 @@ function ResultsContent() {
                         </span>
                       </div>
                       <div className="text-right">
-                        <span className="text-2xl font-bold text-green-600">{scanData.recyclability_score}%</span>
+                        <span className="text-2xl font-bold text-green-600">{scanData.recyclability_score == null ? '—' : `${scanData.recyclability_score}%`}</span>
                       </div>
                     </div>
                     <div className="overflow-hidden h-4 mb-4 text-xs flex rounded-full bg-gray-200">
                       <div
-                        style={{ width: `${scanData.recyclability_score}%` }}
+                        style={{ width: `${scanData.recyclability_score ?? 0}%` }}
                         className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-green-400 to-green-600 transition-all duration-500"
                       ></div>
                     </div>
+                    {scanData.recyclability_score == null && (
+                      <p className="text-sm text-gray-600">The research step failed for this scan, so no score is available.</p>
+                    )}
                   </div>
                 </div>
 

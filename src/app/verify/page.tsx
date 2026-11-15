@@ -50,6 +50,7 @@ function VerifyContent() {
     confidence: number;
     feedback: string;
     impactScore: number;
+    verificationUnavailable?: boolean;
     saved?: boolean;
     saveError?: string | null;
   } | null>(null);
@@ -190,7 +191,10 @@ function VerifyContent() {
             </>
           ) : (
             <>
-              {result.verified ? (
+              {/* An AI outage is pending, not a verdict: the amber
+                  icon and Pending heading, never a red X with a
+                  "0% confident" line (see below). */}
+              {result.verified || result.verificationUnavailable ? (
                 <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
                   <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -203,7 +207,7 @@ function VerifyContent() {
                   </svg>
                 </div>
               )}
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">{result.verified ? 'Verification Pending' : 'Project Not Verified'}</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">{result.verified || result.verificationUnavailable ? 'Verification Pending' : 'Project Not Verified'}</h1>
               <p className="text-gray-600 mb-6">{result.feedback}</p>
               {result.saved === false && (
                 <p className="text-sm text-red-600 mb-6">
@@ -211,12 +215,16 @@ function VerifyContent() {
                 </p>
               )}
               {/* Floor, don't round: a pending result at 84.5% must
-                  never display as 85% next to "85%+ is needed". */}
-              <p className="text-sm text-gray-500 mb-6">
-                {result.verified
-                  ? `The AI thinks this may be complete, but is only ${Math.floor(result.confidence * 100)}% confident — 85%+ is needed for automatic approval.`
-                  : `The AI is ${Math.floor(result.confidence * 100)}% confident this photo does not show a completed project yet.`}
-              </p>
+                  never display as 85% next to "85%+ is needed".
+                  And when the AI was unavailable there is no verdict
+                  at all — never show "0% confident". */}
+              {!result.verificationUnavailable && (
+                <p className="text-sm text-gray-500 mb-6">
+                  {result.verified
+                    ? `The AI thinks this may be complete, but is only ${Math.floor(result.confidence * 100)}% confident — 85%+ is needed for automatic approval.`
+                    : `The AI is ${Math.floor(result.confidence * 100)}% confident this photo does not show a completed project yet.`}
+                </p>
+              )}
             </>
           )}
 

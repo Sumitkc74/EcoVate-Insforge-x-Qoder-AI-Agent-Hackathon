@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guessMaterialAndPackagingWithGroq } from '@/lib/groq-vision';
 import { serverDb } from '@/lib/insforge';
-import { requireUser, overAttemptCap, logAttempt, unauthorizedResponse } from '@/lib/server-auth';
+import {
+  requireUser,
+  overAttemptCap,
+  logAttempt,
+  guestPoolUsed,
+  GUEST_DAILY_POOL,
+  GUEST_POOL_MESSAGE,
+  unauthorizedResponse,
+} from '@/lib/server-auth';
 
 // Two free attempts must fit inside the free-plan function
 // limit of 60s, so each gets 25s: Gemini first, then Groq.
@@ -67,6 +75,17 @@ export async function POST(request: NextRequest) {
           ? 'Daily material-guess limit reached (10 for guest accounts). Sign in with Google for 30 a day.'
           : 'Daily material-guess limit reached (30). Try again tomorrow.',
       },
+      { status: 429 },
+    );
+  }
+
+  // Shared guest pool: guesses used to be outside it, so minting a
+  // fresh guest bought 10 more guesses with no aggregate limit —
+  // each guess costs up to two model calls. All guests together now
+  // share the 40/day pool with scans and verifications.
+  if (user.isAnonymous && (await guestPoolUsed()) >= GUEST_DAILY_POOL) {
+    return NextResponse.json(
+      { success: false, error: GUEST_POOL_MESSAGE },
       { status: 429 },
     );
   }

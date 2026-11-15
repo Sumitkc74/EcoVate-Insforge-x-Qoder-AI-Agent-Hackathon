@@ -62,26 +62,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The scan must belong to the caller when it exists. (A temp
-    // scan id — a scan that was never saved — has no row, so it
-    // proceeds as before.)
+    // The scan must exist and belong to the caller. A made-up id
+    // used to sail through (no row, so no 403) and an action was
+    // inserted with a dangling scan_id, so points needed no real
+    // scan at all. /api/actions already 404s on a missing scan.
     const { data: scan } = await serverDb
       .from('scans')
       .select('user_id')
       .eq('id', scanId)
       .single();
-    if (scan && (scan as { user_id: string }).user_id !== userId) {
+    if (!scan) {
+      return NextResponse.json(
+        { error: 'Scan not found. Please scan again.' },
+        { status: 404 },
+      );
+    }
+    if ((scan as { user_id: string }).user_id !== userId) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
     }
 
-    // Points come from the chosen DIY idea, not the client: the
-    // client value used to be trusted, so anyone could submit a
-    // verification with an inflated CO2 number and mint points
-    // (10 + CO2 x 20). Look up the latest diy_selected action for
-    // this scan; if the choice was never saved (the log can race the
-    // navigation from the results page), fall back to the client
-    // value clamped to 5 kg — a single DIY idea saves well under that.
-    let estimatedCo2Saved = 0.5;
+    // A completed project cannot be verified again for more points:
+    // every approved re-verify used to insert another diy_completed
+    // row worth up to 110 pts. Checked before the cap and the AI
+    // work, so a repeat costs no attempt.
+    const { data: completedAction } = await serverDb
+      .from('user_actions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('scan_id', scanId)
+      .eq('action_type', 'diy_completed')
+      .limit(1)
+      .single();
+    if (completedAction) {
+      return NextResponse.json(
+        { error: 'This project is already verified and its points have been awarded. It cannot be verified again.' },
+        { status: 409 },
+      );
+    }
+
+    // Points come from the chosen DIY idea, never the client: the
+    // client value used to be trusted as a fallback, so any scan
+    // with no saved choice — and every fake scan — could mint up
+    // to 110 pts by passing estimatedCo2Saved=5. A saved choice is
+    // required: the results page saves it before navigating here,
+    // and History resumes from the saved row.
     const { data: selectedAction } = await serverDb
       .from('user_actions')
       .select('estimated_co2_saved')
@@ -91,20 +115,19 @@ export async function POST(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
-    if (selectedAction && typeof (selectedAction as { estimated_co2_saved?: unknown }).estimated_co2_saved === 'number') {
-      estimatedCo2Saved = (selectedAction as { estimated_co2_saved: number }).estimated_co2_saved;
-    } else {
-      const clientValue = parseFloat(formData.get('estimatedCo2Saved') as string);
-      estimatedCo2Saved = Number.isFinite(clientValue)
-        ? Math.min(Math.max(clientValue, 0), 5)
-        : 0.5;
+    if (!selectedAction || typeof (selectedAction as { estimated_co2_saved?: unknown }).estimated_co2_saved !== 'number') {
+      return NextResponse.json(
+        { error: 'Choose a DIY idea for this scan first, then verify it. Go back to the scan results to pick one.' },
+        { status: 400 },
+      );
     }
-    // Clamp either way: the diy_selected row is written by
-    // /api/actions from a client-supplied number, so trusting it
-    // unclamped re-opens the minting hole the fallback clamp closed
-    // (a row with 10,000 kg would score 10 + 10,000 x 20). A single
-    // DIY idea saves well under 5 kg; anything above that is a
-    // bad input, not a better project.
+    let estimatedCo2Saved = (selectedAction as { estimated_co2_saved: number }).estimated_co2_saved;
+    // Clamp: the diy_selected row is written by /api/actions from a
+    // client-supplied number, so trusting it unclamped re-opens the
+    // minting hole the fallback clamp closed (a row with 10,000 kg
+    // would score 10 + 10,000 x 20). A single DIY idea saves well
+    // under 5 kg; anything above that is a bad input, not a better
+    // project.
     estimatedCo2Saved = Math.min(Math.max(estimatedCo2Saved, 0), 5);
 
     // Debug logging
@@ -164,9 +187,11 @@ export async function POST(request: NextRequest) {
     const uploadPromise = uploadImage(imageFile, `verifications/${userId}`);
 
     // Try Gemini (free tier, server-side key) to verify the photo.
-    // If Gemini is unavailable, the submission still succeeds as
-    // pending below — it never errors on a verification AI failure.
+    // If both free models are unavailable, the submission still
+    // succeeds as pending below — it never errors on a verification
+    // AI failure, and it is stored as pending, not failed.
     let verificationResult: { verified: boolean; confidence: number; feedback: string } | null = null;
+    let verificationUnavailable = false;
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       try {
@@ -211,6 +236,13 @@ export async function POST(request: NextRequest) {
       verificationResult = await verifyWithGroq(base64Image, packagingType, projectTitle);
     }
     if (!verificationResult) {
+      // Both free models failed: this is an outage, not a verdict.
+      // It used to be stored as diy_failed with 0% confidence shown
+      // as "the AI is 0% confident this photo does not show a
+      // completed project" — while the feedback text promised the
+      // project was "saved as pending". Store it as pending, and
+      // tell the page so it shows Pending, not a 0% verdict.
+      verificationUnavailable = true;
       verificationResult = {
         verified: false,
         confidence: 0,
@@ -228,11 +260,14 @@ export async function POST(request: NextRequest) {
     // Determine verification status
     // verified=false means the AI found this is NOT a completed project,
     // so it is a failed attempt, not pending. Only verified=true with
-    // confidence below 0.85 stays pending.
+    // confidence below 0.85 stays pending — plus the outage case
+    // above, where no AI ever judged the photo.
     const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85;
-    const actionType = isApproved
-      ? 'diy_completed'
-      : verificationResult.verified ? 'diy_pending' : 'diy_failed';
+    const actionType = verificationUnavailable
+      ? 'diy_pending'
+      : isApproved
+        ? 'diy_completed'
+        : verificationResult.verified ? 'diy_pending' : 'diy_failed';
 
     // Calculate impact score (0 for pending / failed)
     const impactScore = isApproved ? Math.round(10 + (estimatedCo2Saved * 20)) : 0;
@@ -296,6 +331,7 @@ export async function POST(request: NextRequest) {
       verified: verificationResult.verified,
       confidence: verificationResult.confidence,
       feedback: verificationResult.feedback,
+      verificationUnavailable,
       impactScore,
       imageUrl,
     });

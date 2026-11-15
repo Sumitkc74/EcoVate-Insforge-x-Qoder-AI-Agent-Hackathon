@@ -26,7 +26,7 @@ import {
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck13-precheck';
+export const SCAN_API_VERSION = 'imgcheck14-critical-high';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -114,6 +114,14 @@ async function ensureUserProfile(user: AuthedUser): Promise<string | null> {
   }
 }
 
+// Research figures are estimates: when the research step failed
+// there is no figure at all, and storing 0 presented a fabricated
+// "0 kg / 0%" as a measured result. Null means unavailable, and the
+// results page says so instead of showing a zero.
+function researchValue(value: number | null | undefined): number | null {
+  return typeof value === 'number' ? value : null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Auth first: the user id comes from the validated session token,
@@ -157,13 +165,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Log the attempt now that both caps passed: the scan burns AI
-    // quota whether it later succeeds or its rows are deleted, so
-    // the cap counts attempts. Until the one-time SQL creates
-    // usage_attempts the log fails silently and the cap falls back
-    // to counting scans rows.
-    await logAttempt(userId, 'scan');
-
     // Optional manual details: when product name + packaging type are
     // supplied, the coordinator skips Vision AI entirely (free-plan path).
     const manualMaterials = Array.isArray(body.materials)
@@ -178,6 +179,39 @@ export async function POST(request: NextRequest) {
       label_text: typeof body.label_text === 'string' ? body.label_text : undefined,
     };
 
+    // Shared time budget for the whole scan: 50s of the route's 60s
+    // function limit. The steps used to run with independent
+    // timeouts that added up to ~145s worst case, and Vercel killed
+    // the scan mid-flight. Vision and DIY clamp their attempts to
+    // this deadline and skip second attempts when it is nearly up.
+    const deadlineMs = Date.now() + 50000;
+
+    // The coordinator (AI), the photo upload, the profile upsert
+    // and the detail recheck are independent, so they run together.
+    // The recheck used to run first and alone (up to 40s) before
+    // the coordinator even started. Running it in parallel means a
+    // confidently-rejected scan wastes the coordinator's work — but
+    // the common case no longer pays the recheck's time on top of
+    // the coordinator's, which is what kept scans near the limit.
+    // A rejected scan is still not logged as an attempt (below).
+    console.log('Starting Coordinator Agent...');
+    const coordinatorPromise = runCoordinatorAgent(base64Image, manual, deadlineMs);
+    const uploadPromise = uploadScanImage(base64Image, userId);
+    const profilePromise = ensureUserProfile(user);
+    const detailPromise: Promise<Awaited<ReturnType<typeof checkDetailsAgainstPhoto>> | null> =
+      manual.product_name && manual.packaging_type
+        ? checkDetailsAgainstPhoto(base64Image, {
+            productName: manual.product_name,
+            packagingType: manual.packaging_type,
+            materials: manualMaterials,
+          })
+        : Promise.resolve(null);
+
+    const [coordinatorResult, check] = await Promise.all([
+      coordinatorPromise,
+      detailPromise,
+    ]);
+
     // Recheck hand-entered details against the photo. The coordinator
     // skips vision entirely when a product name + packaging type are
     // supplied, so without this anything random could be entered and
@@ -187,13 +221,8 @@ export async function POST(request: NextRequest) {
     // photo from a different angle. An unsure verdict, or vision
     // being unavailable, never blocks the scan.
     let detailWarning: string | null = null;
-    if (manual.product_name && manual.packaging_type) {
-      const check = await checkDetailsAgainstPhoto(base64Image, {
-        productName: manual.product_name,
-        packagingType: manual.packaging_type,
-        materials: manualMaterials,
-      });
-      if (check && !check.matches && check.confidence >= DETAIL_MISMATCH_CONFIDENCE) {
+    if (check) {
+      if (!check.matches && check.confidence >= DETAIL_MISMATCH_CONFIDENCE) {
         return NextResponse.json({
           success: false,
           mismatch: true,
@@ -203,25 +232,18 @@ export async function POST(request: NextRequest) {
           confidence: check.confidence,
         }, { status: 422 });
       }
-      if (check && !check.matches) {
+      if (!check.matches) {
         detailWarning = `The AI wasn't sure your details match the photo (it sees: ${check.observed || 'something else'}). Double-check the product name and packaging type.`;
       }
     }
 
-    // The coordinator (AI), the photo upload and the profile
-    // upsert are independent — they used to run one after the other,
-    // which put the storage round-trip and the profile write on the
-    // scan's critical path. They now run together; only the scan
-    // insert below still waits for the AI result and the photo URL.
-    // If the AI fails, the upload and profile work already done is
-    // harmless (the profile row should exist anyway; a failed scan
-    // leaves one unreferenced photo in storage).
-    console.log('Starting Coordinator Agent...');
-    const coordinatorPromise = runCoordinatorAgent(base64Image, manual);
-    const uploadPromise = uploadScanImage(base64Image, userId);
-    const profilePromise = ensureUserProfile(user);
-
-    const coordinatorResult = await coordinatorPromise;
+    // Log the attempt now that the mismatch check passed: the scan
+    // burns AI quota whether it later succeeds or its rows are
+    // deleted, so the cap counts attempts. But a rejected scan
+    // (422 above) never produced a scan and ran no vision beyond
+    // the recheck, so it used to burn one of a guest's 2 daily
+    // scans for nothing — it no longer does.
+    await logAttempt(userId, 'scan');
 
     // Honest degradation note: when vision was down and the scan was
     // built from the on-device results instead, say so on the results
@@ -263,8 +285,8 @@ export async function POST(request: NextRequest) {
       user_id: userId,
       product_name: coordinatorResult.data!.product_name,
       materials: coordinatorResult.data!.detected_materials,
-      carbon_footprint: coordinatorResult.data!.carbon_footprint_kg || 0,
-      recyclability_score: coordinatorResult.data!.recyclability_score || 0,
+      carbon_footprint: researchValue(coordinatorResult.data!.carbon_footprint_kg),
+      recyclability_score: researchValue(coordinatorResult.data!.recyclability_score),
       image_url: imageUrl,
       diy_ideas: coordinatorResult.data!.diy_ideas || [],
     };

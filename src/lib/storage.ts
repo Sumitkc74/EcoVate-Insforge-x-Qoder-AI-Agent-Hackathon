@@ -10,7 +10,18 @@
 import { serverStorage } from './insforge';
 
 const BUCKET_NAME = 'user-uploads';
-const INSFORGE_URL = process.env.NEXT_PUBLIC_INSFORGE_URL || 'https://8t37jscx.us-west.insforge.app';
+// No fallback URL here: the old hard-coded fallback pointed at a
+// dead backend, so a deploy without the env var built every public
+// photo URL against a dead host. Fail loudly instead.
+const INSFORGE_URL = (() => {
+  const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
+  if (!url) {
+    throw new Error(
+      'NEXT_PUBLIC_INSFORGE_URL is not set — set it in Vercel (Production) to the Insforge backend URL.',
+    );
+  }
+  return url;
+})();
 
 // Only real photo types are accepted, and the extension comes from
 // the validated MIME type — never from the client-supplied file name.

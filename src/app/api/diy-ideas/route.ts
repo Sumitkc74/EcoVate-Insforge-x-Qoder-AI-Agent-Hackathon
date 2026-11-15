@@ -24,6 +24,9 @@ import {
   requireUser,
   overAttemptCap,
   logAttempt,
+  guestPoolUsed,
+  GUEST_DAILY_POOL,
+  GUEST_POOL_MESSAGE,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
@@ -142,6 +145,16 @@ export async function GET(request: NextRequest) {
             ? 'Daily idea refresh limit reached (10 for guest accounts). Sign in with Google for 30 a day.'
             : 'Daily idea refresh limit reached (30). Try again tomorrow.',
         },
+        { status: 429 },
+      );
+    }
+    // Shared guest pool: refreshes used to be outside it, so
+    // minting a fresh guest bought 10 more refreshes with no
+    // aggregate limit. All guests together now share the 40/day
+    // pool with scans, verifications and guesses.
+    if (user.isAnonymous && (await guestPoolUsed()) >= GUEST_DAILY_POOL) {
+      return NextResponse.json(
+        { success: false, error: GUEST_POOL_MESSAGE },
         { status: 429 },
       );
     }

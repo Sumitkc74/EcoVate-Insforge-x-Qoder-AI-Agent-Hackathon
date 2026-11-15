@@ -38,6 +38,11 @@ export interface ManualScanInput {
 export async function runCoordinatorAgent(
   imageBase64: string,
   manual?: ManualScanInput,
+  // Epoch ms by which the whole scan should be done (the scan route
+  // sets it ~50s out, inside the 60s function limit). Without it the
+  // steps' timeouts added up to ~145s and Vercel killed the scan
+  // mid-flight. Vision and DIY clamp their attempts to it.
+  deadlineMs?: number,
 ): Promise<CoordinatorResult> {
   const startTime = Date.now();
   const errors: string[] = [];
@@ -73,7 +78,7 @@ export async function runCoordinatorAgent(
     } else {
       // Step 1: Vision Agent
       console.log('Coordinator: Running Vision Agent...');
-      const { result: visionResult, error: visionError } = await runVisionAgent(imageBase64);
+      const { result: visionResult, error: visionError } = await runVisionAgent(imageBase64, deadlineMs);
 
       if (visionError || !visionResult) {
         // Vision is down, but the scan does not have to fail: the
@@ -125,14 +130,22 @@ export async function runCoordinatorAgent(
       }
     }
 
-    partialData.material_unknown = materialUnknown;
+    // A material that is only the generic 'mixed plastic' default
+    // is not a determination either: the warning under-reported
+    // before, because material_unknown was only set when the list
+    // was empty. A genuinely mixed item still scores as an estimate,
+    // which is what the warning says.
+    partialData.material_unknown =
+      materialUnknown ||
+      (partialData.detected_materials?.length === 1 &&
+        partialData.detected_materials[0].toLowerCase() === 'mixed plastic');
 
     // Step 2 & 3: Run Research and DIY agents in PARALLEL for speed
     console.log('Coordinator: Running Research and DIY Agents in parallel...');
     
     const [researchResult, diyResult] = await Promise.all([
       runResearchAgent(partialData.detected_materials!, partialData.packaging_type!),
-      runDIYAgent(partialData.packaging_type!, partialData.detected_materials!),
+      runDIYAgent(partialData.packaging_type!, partialData.detected_materials!, deadlineMs),
     ]);
 
     // Process Research Agent result
