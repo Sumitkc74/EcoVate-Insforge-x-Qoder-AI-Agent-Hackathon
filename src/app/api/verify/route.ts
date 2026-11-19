@@ -50,13 +50,15 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Server-side size guard, matching the 5 MB storage limit:
-    // without it a huge file reached the AI calls before anything
-    // checked it.
-    const MAX_VERIFY_IMAGE_BYTES = 5 * 1024 * 1024;
+    // Server-side size guard: the client downscales to 1024px first,
+    // so a legitimate photo is well under this. 4 MB, not 5: the
+    // platform rejects bodies over 4.5 MB before the route runs, so
+    // a 5 MB limit here could never fire — 4 MB keeps the friendly
+    // error in reach instead of Vercel's generic error page.
+    const MAX_VERIFY_IMAGE_BYTES = 4 * 1024 * 1024;
     if (imageFile.size > MAX_VERIFY_IMAGE_BYTES) {
       return NextResponse.json(
-        { error: 'That photo is too large (max 5 MB). Please take a smaller photo and try again.' },
+        { error: 'That photo is too large (max 4 MB). Please take a smaller photo and try again.' },
         { status: 413 },
       );
     }
