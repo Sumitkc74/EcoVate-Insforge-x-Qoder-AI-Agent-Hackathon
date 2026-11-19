@@ -12,10 +12,13 @@
  *   guest identity being moved. Without it, anyone could move any
  *   guest's rows by guessing a user id.
  *
- * The guest users row is deleted after its rows move (the name on it
- * was the guest's chosen leaderboard name; the Google account keeps
- * its own name from Google). The caller clears the guest session in
- * localStorage only after this returns success.
+ * The guest users row is deleted after its rows move. If the guest
+ * had picked a custom leaderboard name and the Google account never
+ * picked one of its own (its users-row name still matches its Google
+ * profile name), the guest's name carries over — otherwise the
+ * guest's chosen name would silently vanish on sign-in. The caller
+ * clears the guest session in localStorage only after this returns
+ * success.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -77,6 +80,25 @@ export async function POST(request: NextRequest) {
       .update({ user_id: googleId })
       .eq('user_id', guestId);
     if (actionsError) throw actionsError;
+    // A custom guest name carries over when the Google account never
+    // picked one of its own (its row still matches its Google profile
+    // name). A name the Google user picked themselves is never
+    // overwritten. Best effort: a failure here must not fail the move.
+    if (guest.name && guest.name !== 'Guest') {
+      try {
+        const { data: googleRow } = await serverDb
+          .from('users')
+          .select('name')
+          .eq('id', googleId)
+          .single();
+        const googleRowName = (googleRow as { name?: string | null } | null)?.name ?? null;
+        if (!googleRowName || googleRowName === user.name) {
+          await serverDb.from('users').update({ name: guest.name }).eq('id', googleId);
+        }
+      } catch {
+        // Keep the move; the Google account keeps its current name.
+      }
+    }
     const { error: deleteError } = await serverDb
       .from('users')
       .delete()

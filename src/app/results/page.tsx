@@ -190,7 +190,10 @@ function ResultsContent() {
             </button>
             <span className="font-bold text-gray-900">Scan Results</span>
           </div>
-          <UserMenu user={headerUser} />
+          <UserMenu
+            user={headerUser}
+            onNameChange={(name) => setHeaderUser((prev) => (prev ? { ...prev, name } : prev))}
+          />
         </div>
       </header>
 

@@ -8,11 +8,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { signInWithGoogle } from '@/lib/auth';
 import {
   getCurrentIdentity,
   authedFetch,
-  updateAnonSessionName,
   readAnonSession,
   clearAnonSession,
   type AnonSession,
@@ -54,16 +52,10 @@ export default function DashboardPage() {
   const [continueData, setContinueData] = useState<{ scans: DiyScanLike[]; actions: DiyActionLike[] } | null>(null);
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
-  // Guest display name editor (anonymous accounts only).
-  const [displayName, setDisplayName] = useState('');
-  const [isSavingName, setIsSavingName] = useState(false);
-  const [nameSaved, setNameSaved] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
   // This guest's own daily use, from the dashboard API (guests
   // only): scans and verifications are separate caps of 2 each.
   const [guestUsage, setGuestUsage] = useState<{ scans: number; verifications: number } | null>(null);
   const [guestPoolExhausted, setGuestPoolExhausted] = useState(false);
-  const [guestSignInError, setGuestSignInError] = useState<string | null>(null);
   // A leftover guest session in this browser while signed in with
   // Google — the callback normally moves it, this is the retry.
   const [leftoverGuest, setLeftoverGuest] = useState<AnonSession | null>(null);
@@ -98,7 +90,6 @@ export default function DashboardPage() {
         sustainability_score: 0,
         isAnonymous: identity.isAnonymous,
       });
-      if (identity.isAnonymous) setDisplayName(identity.name || 'Guest');
       // A Google user with a guest session still in this browser:
       // the callback normally moves it, this is the retry.
       if (!identity.isAnonymous) setLeftoverGuest(readAnonSession());
@@ -142,41 +133,6 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Save a new leaderboard name for a guest account.
-  const handleSaveName = async () => {
-    if (!user?.isAnonymous) return;
-    setIsSavingName(true);
-    setNameError(null);
-    setNameSaved(false);
-    try {
-      const response = await authedFetch('/api/anon-name', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: displayName }),
-      });
-      const result = await readApiJson(response);
-      if (!response.ok) throw new Error(result.error || 'Could not save the name');
-      setUser((prev) => (prev ? { ...prev, name: result.name } : prev));
-      setDisplayName(result.name);
-      updateAnonSessionName(result.name);
-      setNameSaved(true);
-    } catch (e) {
-      setNameError((e as Error).message);
-    } finally {
-      setIsSavingName(false);
-    }
-  };
-
-  // A guest signing in with Google from here — not via Sign out,
-  // which clears the guest session first. The OAuth callback moves
-  // the guest history onto the Google account.
-  const handleGuestGoogleSignIn = async () => {
-    setGuestSignInError(null);
-    const { error } = await signInWithGoogle();
-    if (error) setGuestSignInError(error.message);
-    // Success redirects to Google.
   };
 
   // Retry moving a leftover guest session onto this Google account
@@ -278,17 +234,22 @@ export default function DashboardPage() {
       <header className="bg-white shadow-sm">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
           <LeafLogo />
-          <UserMenu user={user} showEmail />
+          <UserMenu
+            user={user}
+            showEmail
+            onNameChange={(name) => setUser((prev) => (prev ? { ...prev, name } : prev))}
+          />
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-md mx-auto px-4 py-6 space-y-6">
-        {/* Guest account: leaderboard name editor + the guest limits. */}
+        {/* Guest account: just the limits. The name and the Google
+            sign-in live in the top-right avatar menu now. */}
         {user?.isAnonymous && (
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Guest account</h2>
-            <p className="text-sm text-gray-500 mb-3">
+            <p className="text-sm text-gray-500">
               You&apos;re using EcoVate without an account — 2 scans and 2 verifications a day, in this browser only.
               {guestUsage && (
                 <> Used today: {guestUsage.scans}/2 scans · {guestUsage.verifications}/2 verifications.</>
@@ -297,38 +258,9 @@ export default function DashboardPage() {
                 <> Guest logins are exhausted for the day — sign in with Google to continue.</>
               )}
             </p>
-            <p className="text-sm text-gray-700 font-medium mb-1">Your leaderboard name:</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                maxLength={40}
-                aria-label="Leaderboard name"
-                className="flex-1 min-w-0 border-2 border-gray-200 rounded-xl py-2 px-3 text-gray-900 focus:border-green-500 focus:outline-none"
-              />
-              <button
-                onClick={handleSaveName}
-                disabled={isSavingName}
-                className="shrink-0 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-50"
-              >
-                {isSavingName ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-            {nameSaved && <p className="text-sm text-green-600 mt-2">Saved.</p>}
-            {nameError && <p className="text-sm text-red-600 mt-2">{nameError}</p>}
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <p className="text-sm text-gray-500 mb-2">
-                Want to keep your scans? Sign in with Google — your guest history moves to your account.
-              </p>
-              <button
-                onClick={handleGuestGoogleSignIn}
-                className="w-full flex items-center justify-center space-x-2 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-4 rounded-xl transition-all"
-              >
-                <span>Sign in with Google</span>
-              </button>
-              {guestSignInError && <p className="text-sm text-red-600 mt-2">{guestSignInError}</p>}
-            </div>
+            <p className="text-sm text-gray-500 mt-2">
+              Tap your avatar above to pick a leaderboard name or sign in with Google and keep your scans.
+            </p>
           </div>
         )}
 

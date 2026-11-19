@@ -71,11 +71,17 @@ export interface ClientIdentity {
 }
 
 // Whoever is using the app right now: Google user, or guest.
+// The display name comes from the users row when one is set there
+// (GET /api/profile), so a name the user picked themselves — not
+// their Google name — shows in the header everywhere. The profile
+// call never breaks sign-in: any failure falls back to the session
+// identity below.
 export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
+  let identity: ClientIdentity | null = null;
   try {
     const { data } = await auth.getCurrentUser();
     if (data?.user) {
-      return {
+      identity = {
         id: data.user.id,
         name: data.user.profile?.name || null,
         email: data.user.email,
@@ -86,11 +92,24 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
   } catch {
     // No Google session — fall through to the guest session.
   }
-  const anon = readAnonSession();
-  if (anon) {
-    return { id: anon.userId, name: anon.name, email: null, avatar: null, isAnonymous: true };
+  if (!identity) {
+    const anon = readAnonSession();
+    if (anon) {
+      identity = { id: anon.userId, name: anon.name, email: null, avatar: null, isAnonymous: true };
+    }
   }
-  return null;
+  if (!identity) return null;
+  try {
+    const response = await authedFetch('/api/profile');
+    const profile = await readApiJson(response);
+    if (response.ok && profile?.success) {
+      if (typeof profile.name === 'string' && profile.name) identity.name = profile.name;
+      if (typeof profile.avatar === 'string' && profile.avatar) identity.avatar = profile.avatar;
+    }
+  } catch {
+    // Keep the session identity.
+  }
+  return identity;
 }
 
 export async function getAccessToken(): Promise<string | null> {

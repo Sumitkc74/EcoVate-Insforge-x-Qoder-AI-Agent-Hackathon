@@ -285,7 +285,10 @@ function VerifyContent() {
             </button>
             <span className="font-bold text-gray-900">Complete Your Project</span>
           </div>
-          <UserMenu user={headerUser} />
+          <UserMenu
+            user={headerUser}
+            onNameChange={(name) => setHeaderUser((prev) => (prev ? { ...prev, name } : prev))}
+          />
         </div>
       </header>
 

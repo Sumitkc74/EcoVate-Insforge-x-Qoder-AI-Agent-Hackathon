@@ -119,7 +119,7 @@ export async function validateAnonToken(token: string): Promise<AuthedUser | nul
     return null;
   }
   // The display name comes from the users row (set at creation,
-  // changeable later via /api/anon-name).
+  // changeable later via /api/profile).
   const { data: profile } = await serverDb
     .from('users')
     .select('name')

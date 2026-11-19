@@ -10,7 +10,7 @@
  * The identity is a real row in public.users, so scans, actions and
  * the leaderboard all work exactly as for signed-in users — the only
  * difference is the cap and the display name, which the caller may
- * set here (and change later via /api/anon-name).
+ * set here (and change later via /api/profile).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
