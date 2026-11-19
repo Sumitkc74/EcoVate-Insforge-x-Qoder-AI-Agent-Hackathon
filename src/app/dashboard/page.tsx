@@ -386,6 +386,9 @@ export default function DashboardPage() {
         {/* Leaderboard */}
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Leaderboard</h2>
+          <p className="text-xs text-gray-500 -mt-2 mb-3">
+            You need more than 0 points to appear on the leaderboard.
+          </p>
           {myEntry && (
             <p className="text-sm text-gray-600 -mt-2 mb-3">
               You are <span className="font-semibold text-gray-900">#{myEntry.rank}</span> with{' '}

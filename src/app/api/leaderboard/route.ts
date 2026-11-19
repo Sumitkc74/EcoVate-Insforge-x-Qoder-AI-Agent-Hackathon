@@ -3,6 +3,10 @@
  *
  * Returns top users ranked by sustainability score.
  *
+ * Only scores above 0 appear: a new account with no completed
+ * projects is not on the board at all. (That also keeps test and
+ * guest accounts with no points off the public board.)
+ *
  * One entry per person: the same email can have more than one user
  * row (e.g. an imported row plus the row created when signing in to
  * a new backend), so rows are merged by email, their scores summed,
@@ -100,12 +104,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Rank by summed score, newest first on ties.
+    // Rank by summed score, newest first on ties. Only scores
+    // above 0 make the board — filter after merging, so duplicate
+    // rows for one person add up first.
     const rankedUsers = [...merged.values()]
       .sort((a, b) =>
         (b.sustainability_score - a.sustainability_score) ||
         (new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       )
+      .filter((u) => (u.sustainability_score || 0) > 0)
       .slice(0, 20)
       // Email is only used for merging; never expose it in the response.
       .map(({ email: _email, ...user }, index) => ({
