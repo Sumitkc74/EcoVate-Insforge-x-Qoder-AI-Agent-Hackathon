@@ -31,6 +31,7 @@ interface UserData {
   email: string;
   name: string | null;
   avatar: string | null;
+  hasCustomAvatar: boolean;
   sustainability_score: number;
   isAnonymous: boolean;
 }
@@ -87,6 +88,7 @@ export default function DashboardPage() {
         email: identity.email || '',
         name: identity.name,
         avatar: identity.avatar,
+        hasCustomAvatar: identity.hasCustomAvatar ?? false,
         sustainability_score: 0,
         isAnonymous: identity.isAnonymous,
       });
@@ -238,6 +240,7 @@ export default function DashboardPage() {
             user={user}
             showEmail
             onNameChange={(name) => setUser((prev) => (prev ? { ...prev, name } : prev))}
+            onAvatarChange={(avatar, hasCustomAvatar) => setUser((prev) => (prev ? { ...prev, avatar, hasCustomAvatar } : prev))}
           />
         </div>
       </header>

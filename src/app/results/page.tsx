@@ -34,6 +34,7 @@ function ResultsContent() {
     name: string | null;
     email: string | null;
     avatar: string | null;
+    hasCustomAvatar?: boolean;
   } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiVersion, setApiVersion] = useState<string>('');
@@ -81,6 +82,7 @@ function ResultsContent() {
           name: identity.name,
           email: identity.email,
           avatar: identity.avatar,
+          hasCustomAvatar: identity.hasCustomAvatar ?? false,
         });
       }
     }).catch(() => {});
@@ -193,6 +195,7 @@ function ResultsContent() {
           <UserMenu
             user={headerUser}
             onNameChange={(name) => setHeaderUser((prev) => (prev ? { ...prev, name } : prev))}
+            onAvatarChange={(avatar, hasCustomAvatar) => setHeaderUser((prev) => (prev ? { ...prev, avatar, hasCustomAvatar } : prev))}
           />
         </div>
       </header>

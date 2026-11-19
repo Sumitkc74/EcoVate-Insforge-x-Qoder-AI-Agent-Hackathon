@@ -67,6 +67,7 @@ export interface ClientIdentity {
   name: string | null;
   email: string | null;
   avatar: string | null;
+  hasCustomAvatar: boolean;
   isAnonymous: boolean;
 }
 
@@ -86,6 +87,7 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
         name: data.user.profile?.name || null,
         email: data.user.email,
         avatar: data.user.profile?.avatar_url || null,
+        hasCustomAvatar: false,
         isAnonymous: false,
       };
     }
@@ -95,7 +97,7 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
   if (!identity) {
     const anon = readAnonSession();
     if (anon) {
-      identity = { id: anon.userId, name: anon.name, email: null, avatar: null, isAnonymous: true };
+      identity = { id: anon.userId, name: anon.name, email: null, avatar: null, hasCustomAvatar: false, isAnonymous: true };
     }
   }
   if (!identity) return null;
@@ -105,6 +107,7 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
     if (response.ok && profile?.success) {
       if (typeof profile.name === 'string' && profile.name) identity.name = profile.name;
       if (typeof profile.avatar === 'string' && profile.avatar) identity.avatar = profile.avatar;
+      if (typeof profile.hasCustomAvatar === 'boolean') identity.hasCustomAvatar = profile.hasCustomAvatar;
     }
   } catch {
     // Keep the session identity.

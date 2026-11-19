@@ -39,6 +39,7 @@ function VerifyContent() {
     name: string | null;
     email: string | null;
     avatar: string | null;
+    hasCustomAvatar?: boolean;
   } | null>(null);
   
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -69,6 +70,7 @@ function VerifyContent() {
           name: identity.name,
           email: identity.email,
           avatar: identity.avatar,
+          hasCustomAvatar: identity.hasCustomAvatar ?? false,
         });
       }
     }).catch(() => {});
@@ -288,6 +290,7 @@ function VerifyContent() {
           <UserMenu
             user={headerUser}
             onNameChange={(name) => setHeaderUser((prev) => (prev ? { ...prev, name } : prev))}
+            onAvatarChange={(avatar, hasCustomAvatar) => setHeaderUser((prev) => (prev ? { ...prev, avatar, hasCustomAvatar } : prev))}
           />
         </div>
       </header>

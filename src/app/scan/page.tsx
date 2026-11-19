@@ -56,6 +56,7 @@ export default function ScanPage() {
     name: string | null;
     email: string | null;
     avatar: string | null;
+    hasCustomAvatar?: boolean;
   } | null>(null);
 
   // Handle file selection. The photo is downscaled to 1024px on
@@ -91,6 +92,7 @@ export default function ScanPage() {
           name: identity.name,
           email: identity.email,
           avatar: identity.avatar,
+          hasCustomAvatar: identity.hasCustomAvatar ?? false,
         });
       }
     }).catch(() => {});
@@ -607,6 +609,7 @@ export default function ScanPage() {
           <UserMenu
             user={headerUser}
             onNameChange={(name) => setHeaderUser((prev) => (prev ? { ...prev, name } : prev))}
+            onAvatarChange={(avatar, hasCustomAvatar) => setHeaderUser((prev) => (prev ? { ...prev, avatar, hasCustomAvatar } : prev))}
           />
         </div>
       </header>
