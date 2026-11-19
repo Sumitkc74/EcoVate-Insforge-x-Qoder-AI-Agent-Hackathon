@@ -27,6 +27,7 @@ import {
   assertServiceKey,
   requireUser,
   validateAnonToken,
+  isMissingTableError,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
@@ -80,6 +81,17 @@ export async function POST(request: NextRequest) {
       .update({ user_id: googleId })
       .eq('user_id', guestId);
     if (actionsError) throw actionsError;
+    // Cap history moves too, so migration does not reset the guest's
+    // daily caps on the Google account. Best effort: the one-time
+    // usage_attempts table may not exist yet, and a failure here
+    // must not fail the move.
+    const { error: attemptsError } = await serverDb
+      .from('usage_attempts')
+      .update({ user_id: googleId })
+      .eq('user_id', guestId);
+    if (attemptsError && !isMissingTableError(attemptsError)) {
+      console.error('Migrate usage_attempts error:', attemptsError);
+    }
     // A custom guest name carries over when the Google account never
     // picked one of its own (its row still matches its Google profile
     // name). A name the Google user picked themselves is never

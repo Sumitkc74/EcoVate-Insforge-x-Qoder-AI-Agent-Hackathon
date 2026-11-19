@@ -343,7 +343,7 @@ export type AttemptKind = 'scan' | 'verify' | 'material_guess' | 'diy_refresh';
 // failure. Only the missing-table case may fall back to counting
 // surviving rows; every other counting failure fails closed, so a
 // DB hiccup never silently disables the caps.
-function isMissingTableError(err: unknown): boolean {
+export function isMissingTableError(err: unknown): boolean {
   const text = `${(err as { code?: unknown })?.code || ''} ${(err as { message?: unknown })?.message || ''} ${String(err)}`;
   return /42P01|PGRST205|does not exist|relation .* not.*exist|Could not find the table/i.test(text);
 }
@@ -401,29 +401,44 @@ export async function overAttemptCap(
   return overDailyCap(userId, legacyTable, legacyTypes, cap);
 }
 
-// Record an attempt AFTER the cap checks pass and BEFORE the AI work
-// runs: the attempt burned quota whether or not the scan or
-// verification later succeeds or its rows are deleted. A failure to
-// log is swallowed (and logged server-side) — the request still
-// proceeds, and its cap falls back to surviving rows until the
-// one-time SQL creates the table.
-export async function logAttempt(userId: string, kind: AttemptKind): Promise<void> {
+// Claim one attempt: insert the attempt row FIRST, then count.
+// The old pattern was check-then-log, so two requests racing the
+// cap check could both pass and both burn AI quota before either
+// logged. Now the second one sees the first one's row and is turned
+// away. Returns true when the caller should answer 429. The early
+// overAttemptCap check stays in the routes as a cheap fast path;
+// this is the enforcement. A rejected claim still leaves its row
+// logged — the attempt was made. When the usage_attempts table does
+// not exist yet, falls back to the legacy check (and nothing is
+// logged, as before).
+export async function claimAttempt(
+  userId: string,
+  kind: AttemptKind,
+  legacyTable: 'scans' | 'user_actions' | null,
+  legacyTypes: string[] | null,
+  cap: number,
+): Promise<boolean> {
   try {
     const { error } = await serverDb
       .from('usage_attempts')
       .insert([{ user_id: userId, kind }]);
     if (error) {
-      console.error(
-        'Attempt log error (caps fall back to surviving rows until usage_attempts exists):',
-        error,
-      );
+      if (isMissingTableError(error)) {
+        if (legacyTable === null) return false;
+        return overDailyCap(userId, legacyTable, legacyTypes, cap);
+      }
+      console.error('Attempt claim failed (fail-closed):', error);
+      return true;
     }
   } catch (err) {
-    console.error(
-      'Attempt log error (caps fall back to surviving rows until usage_attempts exists):',
-      err,
-    );
+    console.error('Attempt claim failed (fail-closed):', err);
+    return true;
   }
+  const attempts = await countAttempts(userId, kind, cap);
+  if (typeof attempts === 'number') return attempts > cap;
+  // A count failure after a successful insert fails closed.
+  console.error('Attempt claim count failed (fail-closed):', kind, userId);
+  return true;
 }
 
 export function unauthorizedResponse(): NextResponse {

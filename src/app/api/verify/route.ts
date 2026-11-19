@@ -13,7 +13,7 @@ import {
   assertServiceKey,
   requireUser,
   overAttemptCap,
-  logAttempt,
+  claimAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -48,6 +48,17 @@ export async function POST(request: NextRequest) {
         error: `Missing required fields: ${missingFields.join(', ')}`,
         received: { scanId, projectTitle, packagingType }
       }, { status: 400 });
+    }
+
+    // Server-side size guard, matching the 5 MB storage limit:
+    // without it a huge file reached the AI calls before anything
+    // checked it.
+    const MAX_VERIFY_IMAGE_BYTES = 5 * 1024 * 1024;
+    if (imageFile.size > MAX_VERIFY_IMAGE_BYTES) {
+      return NextResponse.json(
+        { error: 'That photo is too large (max 5 MB). Please take a smaller photo and try again.' },
+        { status: 413 },
+      );
     }
 
     // A temp id is a scan that was never saved — there is nothing to
@@ -166,12 +177,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Log the attempt now that both caps passed: the verification
+    // Claim the attempt now that both caps passed: the verification
     // burns AI quota whether it later succeeds or its row is
     // deleted, so the cap counts attempts. Until the one-time SQL
-    // creates usage_attempts the log fails silently and the cap
-    // falls back to counting result rows.
-    await logAttempt(userId, 'verify');
+    // creates usage_attempts the claim falls back to counting result
+    // rows. The claim inserts first and counts second, so two
+    // requests racing the cap check above can no longer both pass
+    // and both burn quota.
+    if (await claimAttempt(userId, 'verify', 'user_actions', ['diy_completed', 'diy_pending', 'diy_failed'], verifyCap)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: user.isAnonymous
+            ? 'Daily verification limit reached (2 for guest accounts). Sign in with Google for 30 a day.'
+            : 'Daily verification limit reached (30). Try again tomorrow.',
+        },
+        { status: 429 },
+      );
+    }
 
     // Convert image to base64 for AI processing
     const bytes = await imageFile.arrayBuffer();

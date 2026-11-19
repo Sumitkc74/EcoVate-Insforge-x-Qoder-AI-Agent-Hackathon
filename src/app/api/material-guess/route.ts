@@ -4,7 +4,7 @@ import { serverDb } from '@/lib/insforge';
 import {
   requireUser,
   overAttemptCap,
-  logAttempt,
+  claimAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -49,7 +49,11 @@ const PACKAGING_TYPES = [
 ] as const;
 
 export async function GET() {
-  return NextResponse.json({ ok: true, configured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) });
+  // Health check only. It used to report which AI keys are
+  // configured; nothing reads those flags (the scan page only POSTs
+  // here), and they tell an unauthenticated caller about the
+  // server's setup.
+  return NextResponse.json({ ok: true });
 }
 
 export async function POST(request: NextRequest) {
@@ -103,12 +107,22 @@ export async function POST(request: NextRequest) {
   }
   const [, mimeType, base64] = match;
 
-  // Log the attempt in the attempt table too, so the cap counts
-  // attempts even if the user_actions row below is ever deleted
-  // (delete-all-projects removes every action row). The user_actions
-  // row stays as well: it is the fallback the cap counts until the
-  // one-time SQL creates usage_attempts.
-  await logAttempt(userId, 'material_guess');
+  // Claim the attempt (insert-then-count) instead of the old
+  // check-then-log: two requests racing the cap check above could
+  // both pass and both burn AI quota. The user_actions row stays as
+  // well: it is the fallback the cap counts until the one-time SQL
+  // creates usage_attempts.
+  if (await claimAttempt(userId, 'material_guess', 'user_actions', ['material_guess'], guessCap)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: user.isAnonymous
+          ? 'Daily material-guess limit reached (10 for guest accounts). Sign in with Google for 30 a day.'
+          : 'Daily material-guess limit reached (30). Try again tomorrow.',
+      },
+      { status: 429 },
+    );
+  }
 
   // Log the attempt so the cap above can count it. The row carries
   // no points and no scan, and History filters by action type, so

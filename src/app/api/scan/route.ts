@@ -14,7 +14,7 @@ import {
   assertServiceKey,
   requireUser,
   overAttemptCap,
-  logAttempt,
+  claimAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -26,7 +26,7 @@ import {
 // Diagnostic marker: GET /api/scan returns this version, so a live
 // check can prove which code the deployed site is actually running.
 // Bump it on every diagnostic change.
-export const SCAN_API_VERSION = 'imgcheck14-critical-high';
+export const SCAN_API_VERSION = 'imgcheck14-minor-fixes';
 
 export async function GET() {
   return NextResponse.json({ ok: true, version: SCAN_API_VERSION });
@@ -134,8 +134,21 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const base64Image = body.image as string;
 
-    if (!base64Image) {
+    if (typeof base64Image !== 'string' || !base64Image) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
+    }
+
+    // Server-side size guard: the client downscales to 1024px before
+    // sending, so a legitimate scan is well under this. Without it a
+    // multi-megabyte body reached the AI calls and storage before
+    // anything checked its size (Vercel's 4.5 MB platform limit was
+    // the only guard).
+    const MAX_SCAN_IMAGE_CHARS = 3_000_000;
+    if (base64Image.length > MAX_SCAN_IMAGE_CHARS) {
+      return NextResponse.json(
+        { error: 'That photo is too large. Please take a smaller photo and try again.' },
+        { status: 413 },
+      );
     }
 
     // Daily cap on scans: 30/day signed in, 2/day anonymous. Each
@@ -237,13 +250,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Log the attempt now that the mismatch check passed: the scan
+    // Claim the attempt now that the mismatch check passed: the scan
     // burns AI quota whether it later succeeds or its rows are
     // deleted, so the cap counts attempts. But a rejected scan
     // (422 above) never produced a scan and ran no vision beyond
     // the recheck, so it used to burn one of a guest's 2 daily
-    // scans for nothing — it no longer does.
-    await logAttempt(userId, 'scan');
+    // scans for nothing — it no longer does. The claim inserts
+    // first and counts second, so two requests racing the cap check
+    // above can no longer both pass and both burn quota.
+    if (await claimAttempt(userId, 'scan', 'scans', null, scanCap)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: user.isAnonymous
+            ? 'Daily scan limit reached (2 for guest accounts). Sign in with Google for 30 a day.'
+            : 'Daily scan limit reached (30). Try again tomorrow.',
+        },
+        { status: 429 },
+      );
+    }
 
     // Honest degradation note: when vision was down and the scan was
     // built from the on-device results instead, say so on the results

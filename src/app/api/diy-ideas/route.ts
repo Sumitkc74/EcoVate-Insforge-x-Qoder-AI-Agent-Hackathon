@@ -23,7 +23,7 @@ import {
   assertServiceKey,
   requireUser,
   overAttemptCap,
-  logAttempt,
+  claimAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -158,7 +158,20 @@ export async function GET(request: NextRequest) {
         { status: 429 },
       );
     }
-    await logAttempt(userId, 'diy_refresh');
+    // Claim the attempt (insert-then-count) instead of the old
+    // check-then-log: two requests racing the cap check above could
+    // both pass and both burn an AI call.
+    if (await claimAttempt(userId, 'diy_refresh', null, null, refreshCap)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: user.isAnonymous
+            ? 'Daily idea refresh limit reached (10 for guest accounts). Sign in with Google for 30 a day.'
+            : 'Daily idea refresh limit reached (30). Try again tomorrow.',
+        },
+        { status: 429 },
+      );
+    }
 
     const { ideas, error } = await runDIYAgent(packagingType, scan.materials || []);
 

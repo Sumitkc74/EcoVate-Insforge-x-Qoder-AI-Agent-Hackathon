@@ -8,4 +8,3 @@ export { runVisionAgent, type VisionResult } from './vision-agent';
 export { runResearchAgent, type ResearchResult } from './research-agent';
 export { runDIYAgent } from './diy-agent';
 export { runCoordinatorAgent, type CoordinatorResult } from './coordinator-agent';
-export { runVerificationAgent, type VerificationResult } from './verification-agent';
