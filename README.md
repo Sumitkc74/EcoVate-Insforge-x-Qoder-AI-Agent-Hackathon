@@ -24,6 +24,10 @@ Captured from the live demo.
 
 ![Scan packaging](docs/screenshots/scan.jpg)
 
+**Scan results**
+
+![Scan results](docs/screenshots/results.jpg)
+
 **Dashboard and leaderboard**
 
 ![Dashboard and leaderboard](docs/screenshots/dashboard.jpg)
