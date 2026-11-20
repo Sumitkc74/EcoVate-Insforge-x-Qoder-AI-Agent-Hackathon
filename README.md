@@ -6,9 +6,27 @@ Built during the Insforge x Qoder AI Agent Hackathon.
 
 **Team:** Namrata Mali, Ayush Kumar Gupta, Ritish Upadhyayula, Sumit K C
 
+Live demo: https://ecovate-insforge-x-qoder-ai-agent-hackathon-sumit-70ea.vercel.app/
+
 ## My Contribution
 
 I implemented the multi-agent coordination workflow, connecting item scanning with vision analysis, sustainability research, DIY reuse recommendations, and verification so users receive practical and trustworthy actions for each item.
+
+## Screenshots
+
+Captured from the live demo.
+
+**Welcome**
+
+![Welcome screen](docs/screenshots/home.jpg)
+
+**Scan packaging**
+
+![Scan packaging](docs/screenshots/scan.jpg)
+
+**Dashboard and leaderboard**
+
+![Dashboard and leaderboard](docs/screenshots/dashboard.jpg)
 
 ## Getting Started
 
