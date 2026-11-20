@@ -10,7 +10,9 @@
  * The identity is a real row in public.users, so scans, actions and
  * the leaderboard all work exactly as for signed-in users — the only
  * difference is the cap and the display name, which the caller may
- * set here (and change later via /api/profile).
+ * set here (and change later via /api/profile). A guest account does
+ * not live forever: signing out deletes it at once, and guests
+ * quiet for 7 days are swept here, when a new guest arrives.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,6 +22,7 @@ import {
   createAnonToken,
   normalizeDisplayName,
   guestPoolUsed,
+  sweepExpiredGuests,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
   handleRouteError,
@@ -28,6 +31,11 @@ import {
 export async function POST(request: NextRequest) {
   try {
     assertServiceKey();
+    // Sweep guests dead for 7+ days before anything else: their
+    // cap attempts no longer count toward the shared pool, and the
+    // board stays clean without a scheduler. Never blocks the new
+    // session — a failed sweep just leaves the rows for next time.
+    await sweepExpiredGuests();
     // No point creating a guest account that cannot scan: when the
     // shared daily pool is already used up, say so now instead of
     // letting the guest in and failing their first scan.

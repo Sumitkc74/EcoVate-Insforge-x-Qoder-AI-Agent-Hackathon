@@ -60,6 +60,18 @@ export default function UserMenu({
   const hasCustomAvatar = customAvatarOverride ?? user.hasCustomAvatar ?? false;
 
   const handleSignOut = async () => {
+    // A guest signing out is gone for good: the token lives only in
+    // this browser, so there is no way back to the account. Delete
+    // it server-side now instead of leaving orphaned rows behind.
+    // Best effort — sign-out still proceeds if the delete fails
+    // (the 7-day sweep catches the orphan).
+    if (isGuest) {
+      try {
+        await authedFetch('/api/guest', { method: 'DELETE' });
+      } catch {
+        // Proceed with sign-out either way.
+      }
+    }
     // Signs out of Google and clears a guest session, if any.
     await signOutAll();
     router.push('/login');

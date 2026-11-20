@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb } from './insforge';
+import { serverDb, serverStorage } from './insforge';
 
 // No fallback URL here: the old hard-coded fallback pointed at a
 // dead backend, so a deploy without the env var silently broke
@@ -119,13 +119,17 @@ export async function validateAnonToken(token: string): Promise<AuthedUser | nul
     return null;
   }
   // The display name comes from the users row (set at creation,
-  // changeable later via /api/profile).
+  // changeable later via /api/profile). The row must exist: a token
+  // whose account was deleted (sign-out, migration, expiry sweep)
+  // is dead — without this check the HMAC would still verify and
+  // the next scan would silently resurrect the account.
   const { data: profile } = await serverDb
     .from('users')
     .select('name')
     .eq('id', userId)
     .single();
-  const name = (profile as { name?: string | null } | null)?.name ?? 'Guest';
+  if (!profile) return null;
+  const name = (profile as { name?: string | null }).name ?? 'Guest';
   return { id: userId, email: null, name, avatar: null, isAnonymous: true };
 }
 
@@ -443,6 +447,144 @@ export async function claimAttempt(
 
 export function unauthorizedResponse(): NextResponse {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+}
+
+// Guest expiry. A guest account is gone the moment its owner logs
+// out: the token lives only in that browser's localStorage, so a
+// logged-out guest can never come back — the next visit makes a new
+// guest. Guests who never log out but go quiet are swept after
+// GUEST_EXPIRY_DAYS without activity (no scan, action or cap
+// attempt). Google accounts never expire.
+export const GUEST_EXPIRY_DAYS = 7;
+
+const STORAGE_BUCKET = 'user-uploads';
+
+function storageKeyFromUrl(url: string | null): string | null {
+  if (!url) return null;
+  const marker = `/api/storage/buckets/${STORAGE_BUCKET}/objects/`;
+  const i = url.indexOf(marker);
+  if (i < 0) return null;
+  try {
+    return decodeURIComponent(url.slice(i + marker.length));
+  } catch {
+    return null;
+  }
+}
+
+// Delete one guest account and everything it owns. Only call with
+// ids already proven to be guests (an anon token, or the sweep's
+// @anon.ecovate.local filter) — this never checks the email itself.
+export async function deleteGuestAccount(userId: string): Promise<void> {
+  // Photos first, best effort: a missing file or a storage error
+  // must not block the row deletes.
+  try {
+    const [{ data: scans }, { data: actions }] = await Promise.all([
+      serverDb.from('scans').select('image_url').eq('user_id', userId),
+      serverDb.from('user_actions').select('image_url').eq('user_id', userId),
+    ]);
+    const urls = [
+      ...((scans || []) as { image_url?: string | null }[]),
+      ...((actions || []) as { image_url?: string | null }[]),
+    ]
+      .map((r) => r.image_url)
+      .filter((u): u is string => typeof u === 'string' && !!u);
+    for (const url of urls) {
+      const key = storageKeyFromUrl(url);
+      if (
+        key &&
+        (key.startsWith(`scans/${userId}/`) ||
+          key.startsWith(`verifications/${userId}/`) ||
+          key.startsWith(`avatars/${userId}/`))
+      ) {
+        try {
+          await serverStorage.from(STORAGE_BUCKET).remove(key);
+        } catch {
+          // Best effort: the orphaned file is unreferenced either way.
+        }
+      }
+    }
+  } catch {
+    // Photos are best effort; the rows still go.
+  }
+  // Rows: scans and actions reference users.id, so the users row
+  // goes last. A missing usage_attempts table just returns an
+  // error object, not a throw.
+  await serverDb.from('usage_attempts').delete().eq('user_id', userId);
+  await serverDb.from('user_actions').delete().eq('user_id', userId);
+  await serverDb.from('scans').delete().eq('user_id', userId);
+  await serverDb.from('users').delete().eq('id', userId);
+}
+
+// Sweep guests inactive for GUEST_EXPIRY_DAYS or more. Last
+// activity is the newest of the account's creation, scans, actions
+// and cap attempts. Runs on guest creation (see /api/anon-session),
+// so no scheduler, cron secret or dashboard step is needed: a new
+// guest arriving is what keeps the board clean. Never throws and
+// never blocks the caller — a failed sweep just leaves the rows for
+// the next one. Returns how many accounts were deleted.
+export async function sweepExpiredGuests(): Promise<number> {
+  const cutoffMs = Date.now() - GUEST_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+  try {
+    const { data: users, error } = await serverDb
+      .from('users')
+      .select('id, email, created_at');
+    if (error || !users) return 0;
+    // Only accounts created before the cutoff can be expired; a
+    // newer account is alive by definition, however quiet.
+    const candidates = (
+      users as { id: string; email: string | null; created_at: string }[]
+    ).filter(
+      (u) =>
+        typeof u.email === 'string' &&
+        u.email.endsWith('@anon.ecovate.local') &&
+        new Date(u.created_at).getTime() < cutoffMs,
+    );
+    if (candidates.length === 0) return 0;
+    const ids = candidates.map((u) => u.id);
+    // Any scan, action or attempt at/after the cutoff keeps the
+    // account. The SDK has no .gte, so read the newest rows and
+    // filter in JS — newest first, so the cutoff check is exact.
+    const [scansRes, actionsRes, attemptsRes] = await Promise.all([
+      serverDb
+        .from('scans')
+        .select('user_id, created_at')
+        .in('user_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(500),
+      serverDb
+        .from('user_actions')
+        .select('user_id, created_at')
+        .in('user_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(500),
+      serverDb
+        .from('usage_attempts')
+        .select('user_id, created_at')
+        .in('user_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(500),
+    ]);
+    const active = new Set<string>();
+    for (const rows of [scansRes.data, actionsRes.data, attemptsRes.data]) {
+      for (const r of (rows || []) as { user_id: string; created_at: string }[]) {
+        if (new Date(r.created_at).getTime() >= cutoffMs) active.add(r.user_id);
+      }
+    }
+    let deleted = 0;
+    for (const c of candidates) {
+      if (active.has(c.id)) continue;
+      try {
+        await deleteGuestAccount(c.id);
+        deleted++;
+      } catch (err) {
+        console.error('Guest expiry delete failed:', c.id, err);
+      }
+    }
+    return deleted;
+  } catch (err) {
+    console.error('Guest expiry sweep failed:', err);
+    return 0;
+  }
 }
 
 // Generic 500 body: never send raw database/SDK error text to the
