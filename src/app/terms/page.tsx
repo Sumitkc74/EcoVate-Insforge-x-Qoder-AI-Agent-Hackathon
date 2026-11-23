@@ -2,10 +2,9 @@
  * Terms of Service
  *
  * Short and plain: what EcoVate is, what you agree to by using it,
- * and what happens to your account. The photo-storage paragraph
- * must stay honest — photos currently live in a public bucket
- * (see the scan page's privacy note); update it when private
- * storage lands.
+ * and what happens to your account. Photos are stored privately
+ * and served through the app only (see the scan page's privacy
+ * note); profile photos are visible on the leaderboard.
  */
 
 export default function TermsPage() {
@@ -31,10 +30,11 @@ export default function TermsPage() {
         <p>
           You keep ownership of the photos you upload. By uploading
           one, you allow EcoVate to store it and send it to its AI
-          providers so the scan can run. Photos are currently stored
-          in a public bucket and can be viewed by anyone with the
-          link, so please do not upload photos showing people,
-          personal information, or the inside of your home.
+          providers so the scan can run. Photos are stored privately
+          and are only shown inside the app — your profile photo is
+          visible on the leaderboard. Please do not upload photos
+          showing people, personal information, or the inside of
+          your home.
         </p>
         <h2 className="text-base font-semibold text-gray-900">AI suggestions</h2>
         <p>

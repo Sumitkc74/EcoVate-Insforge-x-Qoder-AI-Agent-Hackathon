@@ -2,9 +2,9 @@
  * Privacy Policy
  *
  * Short and plain: what EcoVate collects, why, and how long it
- * keeps it. The photo-storage paragraph must stay honest — photos
- * currently live in a public bucket (see the scan page's privacy
- * note); update it when private storage lands.
+ * keeps it. Photos are stored privately and served through the
+ * app only (see the scan page's privacy note); profile photos
+ * are visible on the leaderboard.
  */
 
 export default function PrivacyPage() {
@@ -30,19 +30,20 @@ export default function PrivacyPage() {
         </p>
         <h2 className="text-base font-semibold text-gray-900">Photos</h2>
         <p>
-          Photos you upload are currently stored in a public bucket
-          and can be viewed by anyone with the link. Please do not
-          upload photos showing people, personal information, or the
-          inside of your home. Photos are sent to our AI providers
-          (Google Gemini and Groq) so the scan can run; we do not
-          sell your photos or your data to anyone.
+          Photos you upload are stored privately and are only shown
+          inside the app; your profile photo is visible on the
+          leaderboard. Please do not upload photos showing people,
+          personal information, or the inside of your home. Photos
+          are sent to our AI providers (Google Gemini and Groq) so
+          the scan can run; we do not sell your photos or your data
+          to anyone.
         </p>
         <h2 className="text-base font-semibold text-gray-900">How long we keep it</h2>
         <p>
           A guest account — including its photos, scans, and history
           — is deleted when you sign out, and after 7 days without
           activity. A Google account and its history are kept until
-          you ask for them to be removed. Your leaderboard name and
+          you delete your account from the account menu. Your leaderboard name and
           score are visible to other users; your email address is
           never shown to anyone.
         </p>
