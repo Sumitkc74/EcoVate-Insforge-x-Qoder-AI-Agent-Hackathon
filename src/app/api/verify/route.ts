@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
     // If both free models are unavailable, the submission still
     // succeeds as pending below — it never errors on a verification
     // AI failure, and it is stored as pending, not failed.
-    let verificationResult: { verified: boolean; confidence: number; feedback: string } | null = null;
+    let verificationResult: { verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number } | null = null;
     let verificationUnavailable = false;
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
             body: JSON.stringify({
               contents: [{
                 parts: [
-                  { text: `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.` },
+                  { text: `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object. Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1}.` },
                   { inlineData: { mimeType, data: rawBase64 } },
                 ],
               }],
@@ -249,6 +249,8 @@ export async function POST(request: NextRequest) {
               verified: Boolean(parsed.verified),
               confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
               feedback: String(parsed.feedback || 'No feedback provided'),
+              aiGenerated: Boolean(parsed.aiGenerated),
+              aiGeneratedConfidence: Math.min(1, Math.max(0, Number(parsed.aiGeneratedConfidence) || 0)),
             };
           }
         }
@@ -287,12 +289,23 @@ export async function POST(request: NextRequest) {
     // so it is a failed attempt, not pending. Only verified=true with
     // confidence below 0.85 stays pending — plus the outage case
     // above, where no AI ever judged the photo.
-    const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85;
+    // AI-image flag: the model is also asked whether the photo looks
+    // AI-generated. Only a confident flag blocks points — the same
+    // 0.85 bar as approval — so a miss costs nothing and a
+    // low-confidence suspicion is ignored; a real photo is not
+    // punished for a guess. A flagged photo fails with a clear
+    // reason and can be retried with a real photo.
+    const looksAi = (verificationResult.aiGenerated ?? false) &&
+      (verificationResult.aiGeneratedConfidence ?? 0) >= 0.85;
+    const feedback = looksAi
+      ? 'This looks like an AI-generated image rather than a photo of your completed project. Please upload a real photo of the finished project.'
+      : verificationResult.feedback;
+    const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85 && !looksAi;
     const actionType = verificationUnavailable
       ? 'diy_pending'
       : isApproved
         ? 'diy_completed'
-        : verificationResult.verified ? 'diy_pending' : 'diy_failed';
+        : verificationResult.verified && !looksAi ? 'diy_pending' : 'diy_failed';
 
     // Calculate impact score (0 for pending / failed)
     const impactScore = isApproved ? Math.round(10 + (estimatedCo2Saved * 20)) : 0;
@@ -327,7 +340,7 @@ export async function POST(request: NextRequest) {
       };
       let insertError = (await serverDb.from('user_actions').insert([{
         ...baseAction,
-        feedback: verificationResult.feedback,
+        feedback,
         project_title: projectTitle,
       }])).error;
       if (insertError && /column|feedback|project_title/i.test(insertError.message)) {
@@ -353,9 +366,9 @@ export async function POST(request: NextRequest) {
       success: true,
       saved,
       saveError,
-      verified: verificationResult.verified,
+      verified: verificationResult.verified && !looksAi,
       confidence: verificationResult.confidence,
-      feedback: verificationResult.feedback,
+      feedback,
       verificationUnavailable,
       impactScore,
       imageUrl,

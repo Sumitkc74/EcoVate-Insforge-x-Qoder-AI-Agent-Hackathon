@@ -211,9 +211,9 @@ export async function verifyWithGroq(
   imageDataUrl: string,
   packagingType: string,
   projectTitle: string,
-): Promise<{ verified: boolean; confidence: number; feedback: string } | null> {
+): Promise<{ verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number } | null> {
   const parsed = await callGroqVision(
-    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`,
+    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object. Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1}.`,
     imageDataUrl,
   );
   if (!parsed) return null;
@@ -221,5 +221,7 @@ export async function verifyWithGroq(
     verified: Boolean(parsed.verified),
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
     feedback: String(parsed.feedback || 'No feedback provided'),
+    aiGenerated: Boolean(parsed.aiGenerated),
+    aiGeneratedConfidence: Math.min(1, Math.max(0, Number(parsed.aiGeneratedConfidence) || 0)),
   };
 }
