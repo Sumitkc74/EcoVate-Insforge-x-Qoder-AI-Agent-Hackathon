@@ -48,10 +48,13 @@ async function mapImageUrls<T extends { image_url?: string | null }>(rows: T[]):
 // The tab counts the page shows, computed from the full actions
 // list with the same latest-action rule as the page's own
 // getScanDiyState: a scan's state is its newest DIY action, not
-// any-ever. (Failed and completed are counted per action row, as
-// the page does.)
-function projectCounts(actions: { scan_id: string | null; action_type: string; created_at: string }[]) {
-  const byScan = new Map<string, { action_type: string; created_at: string }[]>();
+// any-ever. A selected row counts only when it is the scan's
+// latest choice — an older choice superseded by a completion or
+// a newer choice is dead, not a second live project. (Failed and
+// completed are counted per action row, as the page does: each is
+// a submitted attempt, not a live choice.)
+function projectCounts(actions: { id: string; scan_id: string | null; action_type: string; created_at: string }[]) {
+  const byScan = new Map<string, { id: string; action_type: string; created_at: string }[]>();
   for (const a of actions) {
     if (!a.scan_id) continue;
     const list = byScan.get(a.scan_id) || [];
@@ -71,8 +74,16 @@ function projectCounts(actions: { scan_id: string | null; action_type: string; c
       : latest.action_type === 'diy_failed' ? 'failed'
       : 'none';
   };
+  const latestSelectedId = (scanId: string | null) => {
+    if (!scanId) return undefined;
+    const selected = (byScan.get(scanId) || []).filter((a) => a.action_type === 'diy_selected');
+    if (selected.length === 0) return undefined;
+    return [...selected].sort(
+      (x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime(),
+    )[0].id;
+  };
   const selected = actions.filter(
-    (a) => a.action_type === 'diy_selected' && stateOf(a.scan_id) === 'selected',
+    (a) => a.action_type === 'diy_selected' && stateOf(a.scan_id) === 'selected' && a.id === latestSelectedId(a.scan_id),
   ).length;
   const pending = actions.filter(
     (a) => a.action_type === 'diy_pending' && stateOf(a.scan_id) === 'pending',
@@ -112,13 +123,14 @@ export async function GET(request: NextRequest) {
         .range(actionOffset, actionOffset + limit - 1),
       serverDb
         .from('user_actions')
-        .select('scan_id, action_type, impact_score, created_at')
+        .select('id, scan_id, action_type, impact_score, created_at')
         .eq('user_id', userId),
     ]);
     if (scansRes.error) throw scansRes.error;
     if (actionsRes.error) throw actionsRes.error;
 
     const allActions = (scoreRes.data || []) as {
+      id: string;
       scan_id: string | null;
       action_type: string;
       impact_score: number;

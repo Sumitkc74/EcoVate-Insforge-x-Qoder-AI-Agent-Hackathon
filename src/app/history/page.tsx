@@ -235,7 +235,7 @@ export default function HistoryPage() {
   const scanDiy = (scanId: string | null) =>
     scanId ? getScanDiyState(scanId, data?.actions || []) : null;
   const selectedProjects = (data?.actions || []).filter(
-    (a) => a.action_type === 'diy_selected' && scanDiy(a.scan_id)?.status === 'selected'
+    (a) => a.action_type === 'diy_selected' && scanDiy(a.scan_id)?.status === 'selected' && scanDiy(a.scan_id)?.selectedAction?.id === a.id
   );
   const pendingProjects = (data?.actions || []).filter(
     (a) => a.action_type === 'diy_pending' && scanDiy(a.scan_id)?.status === 'pending'
