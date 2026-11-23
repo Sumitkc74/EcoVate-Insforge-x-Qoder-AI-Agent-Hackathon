@@ -593,6 +593,29 @@ export async function sweepOrphanedStorage(): Promise<number> {
     const { data: users, error: usersError } = await serverDb.from('users').select('id');
     if (usersError || !users) return 0;
     const liveIds = new Set((users as { id: string }[]).map((u) => u.id));
+    // A file is only orphaned when nothing references it.
+    // Migration moves a guest's rows to the Google account but
+    // leaves the photos under the guest's folder, so a users-row
+    // check alone would delete a live Google user's photos. Collect
+    // every stored URL the rows still point at first; if any of
+    // these reads fails, delete nothing.
+    const [scansRes, actionsRes, avatarsRes] = await Promise.all([
+      serverDb.from('scans').select('image_url'),
+      serverDb.from('user_actions').select('image_url'),
+      serverDb.from('users').select('avatar'),
+    ]);
+    if (scansRes.error || actionsRes.error || avatarsRes.error) return 0;
+    const referenced = new Set<string>();
+    for (const row of [...(scansRes.data || []), ...(actionsRes.data || [])] as {
+      image_url?: string | null;
+    }[]) {
+      const key = storageKeyFromUrl(row.image_url ?? null);
+      if (key) referenced.add(key);
+    }
+    for (const row of (avatarsRes.data || []) as { avatar?: string | null }[]) {
+      const key = storageKeyFromUrl(row.avatar ?? null);
+      if (key) referenced.add(key);
+    }
     // Every file the app writes lives under one of these prefixes,
     // in a folder named after its owner's user id.
     const orphanKeyPattern = /^(scans|verifications|avatars)\/([^/]+)\//;
@@ -606,6 +629,7 @@ export async function sweepOrphanedStorage(): Promise<number> {
         if (deleted >= 100) return deleted;
         const match = orphanKeyPattern.exec(obj.key);
         if (!match) continue;
+        if (referenced.has(obj.key)) continue;
         if (liveIds.has(match[2])) continue;
         try {
           await serverStorage.from(STORAGE_BUCKET).remove(obj.key);
