@@ -28,7 +28,14 @@ const nextConfig: NextConfig = {
               "worker-src 'self' blob: https://cdn.jsdelivr.net",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
-              'connect-src \'self\' https://*.us-west.insforge.app https://storage.googleapis.com',
+              // connect-src must also allow blob: and the tesseract
+              // CDN: the on-device OCR worker (tesseract.js) fetches
+              // the photo through a blob: URL and its source map
+              // from cdn.jsdelivr.net. Without these the worker
+              // loads but every OCR read fails with a CSP error
+              // (seen live Nov 22), so label reading was dead and
+              // scans fell back to AI vision alone.
+              'connect-src \'self\' blob: https://*.us-west.insforge.app https://storage.googleapis.com https://cdn.jsdelivr.net',
               "font-src 'self'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
