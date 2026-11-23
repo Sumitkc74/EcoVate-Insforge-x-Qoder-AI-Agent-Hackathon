@@ -247,25 +247,65 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="max-w-md mx-auto px-4 py-6 space-y-6">
-        {/* Guest account: just the limits. The name and the Google
-            sign-in live in the top-right avatar menu now. */}
-        {user?.isAnonymous && (
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Guest account</h2>
-            <p className="text-sm text-gray-500">
-              You&apos;re using EcoVate without an account — 2 scans and 2 verifications a day, in this browser only.
-              {guestUsage && (
-                <> Used today: {guestUsage.scans}/2 scans · {guestUsage.verifications}/2 verifications.</>
-              )}
-              {guestPoolExhausted && (
-                <> Guest logins are exhausted for the day — sign in with Google to continue.</>
-              )}
+        <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
+
+        {/* Main Menu */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-700">What would you like to do?</h2>
+          
+          {/* Scan Products Option */}
+          <button
+            onClick={() => router.push('/scan')}
+            className="w-full bg-white rounded-2xl shadow-lg p-6 text-left hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-green-500"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center">
+                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-gray-900 text-lg">Scan Products</h3>
+                <p className="text-gray-500 text-sm">Scan product packaging to get upcycling ideas</p>
+              </div>
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </button>
+          {user?.isAnonymous && (
+            <p className="text-xs text-gray-500 text-center">
+              {guestPoolExhausted
+                ? 'Guest logins are exhausted for the day — sign in with Google to continue.'
+                : guestUsage
+                  ? `Guest — ${guestUsage.scans}/2 scans · ${guestUsage.verifications}/2 verifications used today`
+                  : 'Guest — 2 scans and 2 verifications a day, in this browser only.'}
             </p>
-            <p className="text-sm text-gray-500 mt-2">
-              Tap your avatar above to pick a leaderboard name or sign in with Google and keep your scans.
-            </p>
-          </div>
-        )}
+          )}
+
+          {/* View History Option */}
+          <button
+            onClick={() => router.push('/history')}
+            className="w-full bg-white rounded-2xl shadow-lg p-6 text-left hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-blue-500"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center">
+                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-gray-900 text-lg">View History</h3>
+                <p className="text-gray-500 text-sm">See all your scanned products and DIY projects</p>
+              </div>
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </button>
+        </div>
+
 
         {/* Google user with a guest session left in this browser:
             the callback normally moves it; this is the retry. */}
@@ -335,53 +375,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Main Menu */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-700">What would you like to do?</h2>
-          
-          {/* Scan Products Option */}
-          <button
-            onClick={() => router.push('/scan')}
-            className="w-full bg-white rounded-2xl shadow-lg p-6 text-left hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-green-500"
-          >
-            <div className="flex items-center space-x-4">
-              <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-gray-900 text-lg">Scan Products</h3>
-                <p className="text-gray-500 text-sm">Scan product packaging to get upcycling ideas</p>
-              </div>
-              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </div>
-          </button>
-
-          {/* View History Option */}
-          <button
-            onClick={() => router.push('/history')}
-            className="w-full bg-white rounded-2xl shadow-lg p-6 text-left hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-blue-500"
-          >
-            <div className="flex items-center space-x-4">
-              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-gray-900 text-lg">View History</h3>
-                <p className="text-gray-500 text-sm">See all your scanned products and DIY projects</p>
-              </div>
-              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </div>
-          </button>
-        </div>
 
         {/* Leaderboard */}
         <div className="bg-white rounded-2xl shadow-lg p-6">

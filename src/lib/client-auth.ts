@@ -77,22 +77,35 @@ export interface ClientIdentity {
 // their Google name — shows in the header everywhere. The profile
 // call never breaks sign-in: any failure falls back to the session
 // identity below.
+// The SDK's getCurrentUser() refreshes the Google session, which
+// answers 401 when there is none — and it is called on every page
+// and every API call, so a guest collected a 401 per navigation.
+// Once this page load has established there is no Google session,
+// skip the SDK and go straight to the guest session. A Google
+// sign-in is a full redirect, so a fresh page load re-checks.
+let googleSessionAbsent = false;
+
 export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
   let identity: ClientIdentity | null = null;
-  try {
-    const { data } = await auth.getCurrentUser();
-    if (data?.user) {
-      identity = {
-        id: data.user.id,
-        name: data.user.profile?.name || null,
-        email: data.user.email,
-        avatar: data.user.profile?.avatar_url || null,
-        hasCustomAvatar: false,
-        isAnonymous: false,
-      };
+  if (!googleSessionAbsent) {
+    try {
+      const { data } = await auth.getCurrentUser();
+      if (data?.user) {
+        identity = {
+          id: data.user.id,
+          name: data.user.profile?.name || null,
+          email: data.user.email,
+          avatar: data.user.profile?.avatar_url || null,
+          hasCustomAvatar: false,
+          isAnonymous: false,
+        };
+      } else {
+        googleSessionAbsent = true;
+      }
+    } catch {
+      // No Google session — fall through to the guest session.
+      googleSessionAbsent = true;
     }
-  } catch {
-    // No Google session — fall through to the guest session.
   }
   if (!identity) {
     const anon = readAnonSession();
@@ -116,15 +129,20 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  try {
-    const { data } = await auth.getCurrentUser();
-    if (data?.user) {
-      const headers = insforge.getHttpClient().getHeaders() as Record<string, string>;
-      const header = headers['Authorization'] || headers['authorization'];
-      if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length);
+  if (!googleSessionAbsent) {
+    try {
+      const { data } = await auth.getCurrentUser();
+      if (data?.user) {
+        const headers = insforge.getHttpClient().getHeaders() as Record<string, string>;
+        const header = headers['Authorization'] || headers['authorization'];
+        if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length);
+      } else {
+        googleSessionAbsent = true;
+      }
+    } catch {
+      // No Google session — fall through to the guest session.
+      googleSessionAbsent = true;
     }
-  } catch {
-    // No Google session — fall through to the guest session.
   }
   return readAnonSession()?.token ?? null;
 }

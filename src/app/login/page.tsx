@@ -189,7 +189,10 @@ export default function LoginPage() {
         </p>
 
         <p className="mt-6 text-center text-xs text-gray-500">
-          By signing in, you agree to our Terms of Service and Privacy Policy
+          By signing in, you agree to our{' '}
+          <a href="/terms" className="text-green-600 hover:text-green-700 underline">Terms of Service</a>{' '}
+          and{' '}
+          <a href="/privacy" className="text-green-600 hover:text-green-700 underline">Privacy Policy</a>
         </p>
       </div>
     </div>

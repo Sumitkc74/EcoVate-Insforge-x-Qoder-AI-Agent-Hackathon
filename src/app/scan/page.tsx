@@ -604,7 +604,7 @@ export default function ScanPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <span className="font-bold text-gray-900">Scan Product Packaging</span>
+            <h1 className="font-bold text-gray-900 text-base">Scan Product Packaging</h1>
           </div>
           <UserMenu
             user={headerUser}
