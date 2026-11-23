@@ -246,6 +246,18 @@ export default function HistoryPage() {
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
+  // Points at risk when deleting: scores are derived from the
+  // actions, so deleting a project — or a scan, which also deletes
+  // its linked projects — takes those points off every display.
+  // The confirms below must say so before the user taps delete.
+  const projectPoints = allProjects.reduce((s, a) => s + (a.impact_score || 0), 0);
+  const pointsByScan = new Map<string, number>();
+  for (const a of data?.actions || []) {
+    if (a.scan_id && (a.impact_score || 0) > 0) {
+      pointsByScan.set(a.scan_id, (pointsByScan.get(a.scan_id) || 0) + (a.impact_score || 0));
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 pb-6">
       {/* Header */}
@@ -357,7 +369,7 @@ export default function HistoryPage() {
               <div className="flex justify-end">
                 {confirmDeleteAll === 'scans' ? (
                   <span className="flex items-center space-x-2 text-xs">
-                    <span className="text-gray-600">Delete all {data?.scans.length} scans? This can&apos;t be undone.</span>
+                    <span className="text-gray-600">Delete all {data?.scans.length} scans? This can&apos;t be undone.{(data?.totalImpact || 0) > 0 ? ` This removes ${data?.totalImpact} pts.` : ''}</span>
                     <button
                       onClick={() => handleDeleteAll('scans')}
                       disabled={deletingAll === 'scans'}
@@ -507,6 +519,9 @@ export default function HistoryPage() {
                       </span>
                       {confirmDelete?.type === 'scan' && confirmDelete.id === scan.id ? (
                         <span className="flex items-center space-x-2 text-xs">
+                          {(pointsByScan.get(scan.id) || 0) > 0 && (
+                            <span className="text-amber-600">Removes {pointsByScan.get(scan.id)} pts.</span>
+                          )}
                           <button
                             onClick={() => handleDelete('scan', scan.id)}
                             disabled={deletingId === scan.id}
@@ -554,7 +569,7 @@ export default function HistoryPage() {
               <div className="flex justify-end">
                 {confirmDeleteAll === 'projects' ? (
                   <span className="flex items-center space-x-2 text-xs">
-                    <span className="text-gray-600">Delete all {allProjects.length} projects? This can&apos;t be undone.</span>
+                    <span className="text-gray-600">Delete all {allProjects.length} projects? This can&apos;t be undone.{projectPoints > 0 ? ` This removes ${projectPoints} pts.` : ''}</span>
                     <button
                       onClick={() => handleDeleteAll('projects')}
                       disabled={deletingAll === 'projects'}
@@ -718,6 +733,9 @@ export default function HistoryPage() {
                       </span>
                       {confirmDelete?.type === 'project' && confirmDelete.id === action.id ? (
                         <span className="flex items-center space-x-2 text-xs">
+                          {action.impact_score > 0 && (
+                            <span className="text-amber-600">This project earned +{action.impact_score} pts. Deleting removes them.</span>
+                          )}
                           <button
                             onClick={() => handleDelete('project', action.id)}
                             disabled={deletingId === action.id}

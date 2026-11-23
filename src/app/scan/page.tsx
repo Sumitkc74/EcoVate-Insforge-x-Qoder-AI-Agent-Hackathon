@@ -211,6 +211,15 @@ export default function ScanPage() {
     // what it found (or nothing on failure); the merge below trusts
     // the printed label first, then the shape, then the model guess.
 
+    // Which automatic reads actually ran: a step that fails on the
+    // network (the OCR worker fetch, the AI material guess) used to
+    // fail silently to the console, so a scan could quietly lose
+    // its label reading or its AI guess with no message at all. The
+    // flags feed the status line at the end, in every branch — not
+    // only when everything worked.
+    let labelFailed = false;
+    let guessFailed = false;
+
     // 1. Printed label text (OCR, on the device).
     const readLabel = async (): Promise<{ labelText: string; packaging: string; materials: string }> => {
       const empty = { labelText: '', packaging: '', materials: '' };
@@ -259,6 +268,7 @@ export default function ScanPage() {
         }
       } catch (err) {
         console.error('OCR error:', err);
+        labelFailed = true;
         return empty;
       }
     };
@@ -333,6 +343,7 @@ export default function ScanPage() {
         return { material: result.material || '', packaging: result.packaging || '' };
       } catch (err) {
         console.error('Gemini guess error:', err);
+        guessFailed = true;
         return null;
       }
     };
@@ -375,8 +386,6 @@ export default function ScanPage() {
         if (!sources.includes('Gemini')) sources.push('Gemini');
       }
     }
-    const geminiFailed = !guess || (!guess.material && !guess.packaging);
-
     // A product name is needed for the scan to skip AI vision, so
     // fall back to the label's first line — but only if it looks
     // like real words. Garbled OCR noise (e.g. "5 - a" from a
@@ -403,18 +412,29 @@ export default function ScanPage() {
     if (!manualEditedRef.current.has('materials')) setMaterialsText(localMaterials);
     if (!manualEditedRef.current.has('product')) setProductName(localProduct);
 
+    // A step that failed on the network is named in the status line
+    // in every branch: the scan still uses whatever the other steps
+    // found, but the user is told a read did not run instead of
+    // silently getting a thinner result.
+    const failedSteps: string[] = [];
+    if (labelFailed) failedSteps.push('label reading');
+    if (guessFailed) failedSteps.push('the AI material guess');
+    const failedNote = failedSteps.length
+      ? ` Couldn't load: ${failedSteps.join(' and ')}.`
+      : '';
+
     if (localPackaging && localMaterials) {
       setAutoStatus(
         `Filled in automatically from ${sources.join(' and ')}. Check them below and correct anything wrong.` +
-        (geminiFailed ? ' Gemini was unavailable, so this uses the earlier result instead.' : '') +
+        failedNote +
         (!localProduct ? ' The product name will be read by AI vision when you tap Analyze.' : ''),
       );
     } else if (localPackaging) {
-      setAutoStatus('Packaging found automatically. Add the material below if you know it.');
+      setAutoStatus(`Packaging found automatically. Add the material below if you know it.${failedNote}`);
     } else if (localMaterials) {
-      setAutoStatus('Material guessed automatically. Add the packaging type below if you know it.');
+      setAutoStatus(`Material guessed automatically. Add the packaging type below if you know it.${failedNote}`);
     } else {
-      setAutoStatus('Could not read the photo automatically. Enter the details below.');
+      setAutoStatus(`Could not read the photo automatically. Enter the details below.${failedNote}`);
     }
     setIsAutoRunning(false);
   }, [previewImage, selectedFile, packagingType, materialsText, productName]);
