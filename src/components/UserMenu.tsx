@@ -3,7 +3,8 @@
  * showEmail is set) on the right. Tapping it opens a dropdown with
  * the account details, an edit-profile form (the leaderboard name
  * and photo — neither has to come from Google), Sign in with Google
- * for guests, and Sign out. Renders nothing when signed out.
+ * for guests, Delete account for Google users (guests are deleted
+ * when they sign out), and Sign out. Renders nothing when signed out.
  */
 
 'use client';
@@ -46,6 +47,9 @@ export default function UserMenu({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // Values saved in this menu, until the parent re-renders with them.
   const [nameOverride, setNameOverride] = useState<string | null>(null);
   const [avatarOverride, setAvatarOverride] = useState<string | null | undefined>(undefined);
@@ -75,6 +79,25 @@ export default function UserMenu({
     // Signs out of Google and clears a guest session, if any.
     await signOutAll();
     router.push('/login');
+  };
+
+  const handleDeleteAccount = async () => {
+    // Google users only — guests are deleted when they sign out.
+    // Removes the scans, projects, points and photos, then signs
+    // out. Signing in again afterwards starts fresh.
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const response = await authedFetch('/api/account', { method: 'DELETE' });
+      const result = await readApiJson(response);
+      if (!response.ok) throw new Error(result.error || 'Could not delete the account');
+      await signOutAll();
+      router.push('/login');
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleGuestSignIn = async () => {
@@ -301,6 +324,46 @@ export default function UserMenu({
               </svg>
               <span>Sign out</span>
             </button>
+            {!isGuest && !confirmingDelete && (
+              <button
+                onClick={() => {
+                  setConfirmingDelete(true);
+                  setDeleteError(null);
+                }}
+                className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+                </svg>
+                <span>Delete account</span>
+              </button>
+            )}
+            {!isGuest && confirmingDelete && (
+              <div className="px-4 py-3 space-y-3 border-t border-gray-100">
+                <p className="text-sm text-gray-700">
+                  This permanently deletes your EcoVate data — your scans, completed projects, points and photos. You can sign in again later, but you will start fresh.
+                </p>
+                {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={isDeleting}
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Deleting…' : 'Yes, delete my account'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setConfirmingDelete(false);
+                      setDeleteError(null);
+                    }}
+                    className="flex-1 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-3 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
