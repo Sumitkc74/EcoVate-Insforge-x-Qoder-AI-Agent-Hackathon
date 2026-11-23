@@ -27,7 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb, serverStorage } from '@/lib/insforge';
-import { uploadImage } from '@/lib/storage';
+import { uploadImage, storageKeyFromUrl, imageUrlForDisplay } from '@/lib/storage';
 import {
   assertServiceKey,
   requireUser,
@@ -37,18 +37,6 @@ import {
 } from '@/lib/server-auth';
 
 const BUCKET_NAME = 'user-uploads';
-
-function storageKeyFromUrl(url: string | null): string | null {
-  if (!url) return null;
-  const marker = `/api/storage/buckets/${BUCKET_NAME}/objects/`;
-  const i = url.indexOf(marker);
-  if (i < 0) return null;
-  try {
-    return decodeURIComponent(url.slice(i + marker.length));
-  } catch {
-    return null;
-  }
-}
 
 // A custom avatar is a photo the user uploaded (a storage URL under
 // avatars/); a Google photo URL is not.
@@ -82,7 +70,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       name: profile.name || user.name || 'Guest',
-      avatar: profile.avatar || user.avatar || null,
+      // The avatar the client renders: a storage photo becomes the
+      // proxy URL (public for avatars), a Google photo passes
+      // through untouched.
+      avatar: await imageUrlForDisplay(profile.avatar || user.avatar || null),
       hasCustomAvatar: isCustomAvatarUrl(profile.avatar || null),
       email: user.email,
       isAnonymous: user.isAnonymous,

@@ -16,6 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from '@/lib/insforge';
+import { imageUrlForDisplay } from '@/lib/storage';
 import { assertServiceKey, handleRouteError } from '@/lib/server-auth';
 
 interface LeaderboardUser {
@@ -113,16 +114,21 @@ export async function GET(request: NextRequest) {
         (new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       )
       .filter((u) => (u.sustainability_score || 0) > 0)
-      .slice(0, 20)
-      // Email is only used for merging; never expose it in the response.
-      .map(({ email: _email, ...user }, index) => ({
+      .slice(0, 20);
+
+    // Avatars are rewritten to the proxy at read time, so a stored
+    // public URL never leaks through the board either.
+    const board = await Promise.all(
+      rankedUsers.map(async ({ email: _email, ...user }, index) => ({
         rank: index + 1,
         ...user,
-      }));
+        avatar: await imageUrlForDisplay(user.avatar || null),
+      })),
+    );
 
     const body = {
       success: true as const,
-      leaderboard: rankedUsers,
+      leaderboard: board,
     };
     cachedBoard = { at: Date.now(), body };
     return NextResponse.json(body, {

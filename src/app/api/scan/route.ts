@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runCoordinatorAgent } from '@/lib/agents';
 import { serverDb } from '@/lib/insforge';
-import { uploadImage } from '@/lib/storage';
+import { uploadImage, imageUrlForDisplay } from '@/lib/storage';
 import { checkDetailsAgainstPhoto, DETAIL_MISMATCH_CONFIDENCE } from '@/lib/detail-check';
 import {
   assertServiceKey,
@@ -390,7 +390,10 @@ export async function POST(request: NextRequest) {
       scanSaved: scanId !== null && !scanId.startsWith('temp_'),
       saveError: dbErrorMsg,
       profileError: profileErrorMsg,
-      imageUrl,
+      // Signed for display: the stored URL is the unsigned proxy
+      // form, and a scan photo must only render on a short-lived
+      // signed link.
+      imageUrl: await imageUrlForDisplay(imageUrl),
       imageUploadError,
       detailWarning,
       visionFallback,

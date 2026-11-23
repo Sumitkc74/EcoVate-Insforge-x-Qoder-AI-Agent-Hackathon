@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb, serverStorage } from './insforge';
+import { storageKeyFromUrl } from './storage';
 
 // No fallback URL here: the old hard-coded fallback pointed at a
 // dead backend, so a deploy without the env var silently broke
@@ -458,18 +459,6 @@ export function unauthorizedResponse(): NextResponse {
 export const GUEST_EXPIRY_DAYS = 7;
 
 const STORAGE_BUCKET = 'user-uploads';
-
-function storageKeyFromUrl(url: string | null): string | null {
-  if (!url) return null;
-  const marker = `/api/storage/buckets/${STORAGE_BUCKET}/objects/`;
-  const i = url.indexOf(marker);
-  if (i < 0) return null;
-  try {
-    return decodeURIComponent(url.slice(i + marker.length));
-  } catch {
-    return null;
-  }
-}
 
 // Delete one guest account and everything it owns. Only call with
 // ids already proven to be guests (an anon token, or the sweep's

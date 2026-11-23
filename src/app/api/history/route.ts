@@ -29,12 +29,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from '@/lib/insforge';
+import { imageUrlForDisplay } from '@/lib/storage';
 import {
   assertServiceKey,
   requireUser,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
+
+// Rewrite stored image URLs to their display form (signed proxy
+// URLs for scan/verification photos) in a page of rows.
+async function mapImageUrls<T extends { image_url?: string | null }>(rows: T[]): Promise<T[]> {
+  return Promise.all(
+    rows.map(async (row) => ({ ...row, image_url: await imageUrlForDisplay(row.image_url ?? null) })),
+  );
+}
 
 // The tab counts the page shows, computed from the full actions
 // list with the same rules as the page's own getScanDiyState: a
@@ -115,8 +124,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      scans: scansRes.data || [],
-      actions: actionsRes.data || [],
+      // Image URLs are rewritten to the proxy at read time: a
+      // stored public URL becomes a short-lived signed URL, so an
+      // old row never leaks a permanent link either.
+      scans: await mapImageUrls(scansRes.data || []),
+      actions: await mapImageUrls(actionsRes.data || []),
       totalScans,
       totalActions,
       totalProjects: counts.selected + counts.failed + counts.completed,

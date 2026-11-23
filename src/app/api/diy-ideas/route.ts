@@ -16,7 +16,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/insforge';
+import { storageKeyFromUrl } from '@/lib/storage';
 import { runVisionAgent } from '@/lib/agents/vision-agent';
 import { runDIYAgent } from '@/lib/agents/diy-agent';
 import {
@@ -84,11 +85,18 @@ export async function GET(request: NextRequest) {
       // No stored type — fall through to the photo below.
     }
     if (packagingType === 'container' && scan.image_url) {
+      // Read the stored photo straight from storage (service key),
+      // never through its URL: the stored URL is now a signed proxy
+      // link, and fetching it here would need the signature. The
+      // key is extracted from either URL format, old or new.
+      const key = storageKeyFromUrl(scan.image_url);
       try {
-        const imageResponse = await fetch(scan.image_url);
-        if (imageResponse.ok) {
-          const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-          const buffer = Buffer.from(await imageResponse.arrayBuffer());
+        const { data: blob, error: dlError } = key
+          ? await serverStorage.from('user-uploads').download(key)
+          : { data: null, error: new Error('No storage key') };
+        if (!dlError && blob) {
+          const contentType = blob.type || 'image/jpeg';
+          const buffer = Buffer.from(await blob.arrayBuffer());
           const base64 = `data:${contentType};base64,${buffer.toString('base64')}`;
           const { result } = await runVisionAgent(base64);
           if (result?.packaging_type) {

@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb } from '@/lib/insforge';
+import { imageUrlForDisplay } from '@/lib/storage';
 import {
   assertServiceKey,
   requireUser,
@@ -125,6 +126,25 @@ async function getDashboardData(userId: string) {
   const estimatedWaterSaved = totalScans * 2.5; // liters
   const estimatedPlasticDiverted = totalScans * 0.05; // kg
 
+  // Image URLs are rewritten to their display form (signed proxy
+  // URLs for scan/verification photos) so no permanent public link
+  // leaks through this route either.
+  const [mappedScans, mappedActions] = await Promise.all([
+    Promise.all(
+      (scans as { image_url?: string | null }[]).map(async (row) => ({
+        ...row,
+        image_url: await imageUrlForDisplay(row.image_url ?? null),
+      })),
+    ),
+    Promise.all(
+      (actions as { image_url?: string | null }[]).map(async (row) => ({
+        ...row,
+        image_url: await imageUrlForDisplay(row.image_url ?? null),
+      })),
+    ),
+  ]);
+  userProfile.avatar = await imageUrlForDisplay(userProfile.avatar ?? null);
+
   return {
     success: true,
     profile: userProfile,
@@ -135,8 +155,8 @@ async function getDashboardData(userId: string) {
       estimatedWaterSaved: Math.round(estimatedWaterSaved * 10) / 10,
       estimatedPlasticDiverted: Math.round(estimatedPlasticDiverted * 100) / 100,
     },
-    recentScans: scans,
-    recentActions: actions,
+    recentScans: mappedScans,
+    recentActions: mappedActions,
     debug: {
       scanError: scanErrorMsg,
       userId,
