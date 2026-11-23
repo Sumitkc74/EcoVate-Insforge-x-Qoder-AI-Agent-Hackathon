@@ -23,6 +23,7 @@ import {
   normalizeDisplayName,
   guestPoolUsed,
   sweepExpiredGuests,
+  sweepOrphanedStorage,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
   handleRouteError,
@@ -36,6 +37,10 @@ export async function POST(request: NextRequest) {
     // board stays clean without a scheduler. Never blocks the new
     // session — a failed sweep just leaves the rows for next time.
     await sweepExpiredGuests();
+    // Same run, same terms: files whose owner is gone (a row
+    // deleted straight from the dashboard or API, bypassing the
+    // account delete) are removed too, so orphans never pile up.
+    await sweepOrphanedStorage();
     // No point creating a guest account that cannot scan: when the
     // shared daily pool is already used up, say so now instead of
     // letting the guest in and failing their first scan.

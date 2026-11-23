@@ -581,6 +581,47 @@ export async function sweepExpiredGuests(): Promise<number> {
   }
 }
 
+// Delete storage files whose owner no longer has a users row.
+// Direct row deletes (dashboard, API) bypass deleteGuestAccount,
+// so their files would otherwise sit orphaned forever. Runs on
+// guest creation next to sweepExpiredGuests — no scheduler, no
+// secret. Fail-closed: if the users list cannot be read, nothing
+// is deleted. Bounded (100 files per run) so guest creation stays
+// fast. Never throws, never blocks the new session.
+export async function sweepOrphanedStorage(): Promise<number> {
+  try {
+    const { data: users, error: usersError } = await serverDb.from('users').select('id');
+    if (usersError || !users) return 0;
+    const liveIds = new Set((users as { id: string }[]).map((u) => u.id));
+    // Every file the app writes lives under one of these prefixes,
+    // in a folder named after its owner's user id.
+    const orphanKeyPattern = /^(scans|verifications|avatars)\/([^/]+)\//;
+    let deleted = 0;
+    for (const prefix of ['scans/', 'verifications/', 'avatars/']) {
+      const { data, error } = await serverStorage.from(STORAGE_BUCKET).list({ prefix, limit: 100 });
+      if (error || !data) continue;
+      const objects = ((data as { objects?: { key: string }[] }).objects ||
+        (Array.isArray(data) ? (data as { key: string }[]) : [])) as { key: string }[];
+      for (const obj of objects) {
+        if (deleted >= 100) return deleted;
+        const match = orphanKeyPattern.exec(obj.key);
+        if (!match) continue;
+        if (liveIds.has(match[2])) continue;
+        try {
+          await serverStorage.from(STORAGE_BUCKET).remove(obj.key);
+          deleted++;
+        } catch {
+          // Best effort: a leftover file is unreferenced either way.
+        }
+      }
+    }
+    return deleted;
+  } catch (err) {
+    console.error('Orphan storage sweep failed:', err);
+    return 0;
+  }
+}
+
 // Generic 500 body: never send raw database/SDK error text to the
 // client — it leaks table, column and constraint names. The real
 // error stays in the server log via console.error in handleRouteError.
