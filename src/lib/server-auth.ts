@@ -465,11 +465,14 @@ const STORAGE_BUCKET = 'user-uploads';
 // @anon.ecovate.local filter) — this never checks the email itself.
 export async function deleteGuestAccount(userId: string): Promise<void> {
   // Photos first, best effort: a missing file or a storage error
-  // must not block the row deletes.
+  // must not block the row deletes. The avatar lives in the users
+  // row itself (not in scans/actions), so it is fetched here too —
+  // without this the avatar file survived every account deletion.
   try {
-    const [{ data: scans }, { data: actions }] = await Promise.all([
+    const [{ data: scans }, { data: actions }, { data: userRow }] = await Promise.all([
       serverDb.from('scans').select('image_url').eq('user_id', userId),
       serverDb.from('user_actions').select('image_url').eq('user_id', userId),
+      serverDb.from('users').select('avatar').eq('id', userId).single(),
     ]);
     const urls = [
       ...((scans || []) as { image_url?: string | null }[]),
@@ -477,6 +480,8 @@ export async function deleteGuestAccount(userId: string): Promise<void> {
     ]
       .map((r) => r.image_url)
       .filter((u): u is string => typeof u === 'string' && !!u);
+    const avatarUrl = (userRow as { avatar?: string | null } | null)?.avatar;
+    if (typeof avatarUrl === 'string' && avatarUrl) urls.push(avatarUrl);
     for (const url of urls) {
       const key = storageKeyFromUrl(url);
       if (

@@ -22,7 +22,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/insforge';
+import { storageKeyFromUrl } from '@/lib/storage';
 import {
   assertServiceKey,
   requireUser,
@@ -110,6 +111,23 @@ export async function POST(request: NextRequest) {
       } catch {
         // Keep the move; the Google account keeps its current name.
       }
+    }
+    // The guest's avatar does not carry over (only the name does),
+    // so delete its file best-effort before the row goes — otherwise
+    // it stays orphaned in storage after every migration.
+    try {
+      const { data: guestRow } = await serverDb
+        .from('users')
+        .select('avatar')
+        .eq('id', guestId)
+        .single();
+      const avatarUrl = (guestRow as { avatar?: string | null } | null)?.avatar || null;
+      const avatarKey = avatarUrl ? storageKeyFromUrl(avatarUrl) : null;
+      if (avatarKey && avatarKey.startsWith(`avatars/${guestId}/`)) {
+        await serverStorage.from('user-uploads').remove(avatarKey);
+      }
+    } catch {
+      // Best effort: the orphaned file is unreferenced either way.
     }
     const { error: deleteError } = await serverDb
       .from('users')
