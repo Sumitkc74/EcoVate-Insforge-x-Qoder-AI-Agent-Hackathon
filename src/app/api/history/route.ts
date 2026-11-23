@@ -46,25 +46,30 @@ async function mapImageUrls<T extends { image_url?: string | null }>(rows: T[]):
 }
 
 // The tab counts the page shows, computed from the full actions
-// list with the same rules as the page's own getScanDiyState: a
-// scan is completed if any diy_completed exists, else pending if
-// any diy_pending, else selected if a diy_selected exists. (Failed
-// and completed are counted per action row, as the page does.)
-function projectCounts(actions: { scan_id: string | null; action_type: string }[]) {
-  const byScan = new Map<string, Set<string>>();
+// list with the same latest-action rule as the page's own
+// getScanDiyState: a scan's state is its newest DIY action, not
+// any-ever. (Failed and completed are counted per action row, as
+// the page does.)
+function projectCounts(actions: { scan_id: string | null; action_type: string; created_at: string }[]) {
+  const byScan = new Map<string, { action_type: string; created_at: string }[]>();
   for (const a of actions) {
     if (!a.scan_id) continue;
-    const set = byScan.get(a.scan_id) || new Set<string>();
-    set.add(a.action_type);
-    byScan.set(a.scan_id, set);
+    const list = byScan.get(a.scan_id) || [];
+    list.push(a);
+    byScan.set(a.scan_id, list);
   }
   const stateOf = (scanId: string | null) => {
     if (!scanId) return 'none';
-    const types = byScan.get(scanId) || new Set<string>();
-    if (types.has('diy_completed')) return 'completed';
-    if (types.has('diy_pending')) return 'pending';
-    if (types.has('diy_selected')) return 'selected';
-    return 'none';
+    const list = (byScan.get(scanId) || []).filter((a) => a.action_type.startsWith('diy_'));
+    if (list.length === 0) return 'none';
+    const latest = [...list].sort(
+      (x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime(),
+    )[0];
+    return latest.action_type === 'diy_completed' ? 'completed'
+      : latest.action_type === 'diy_pending' ? 'pending'
+      : latest.action_type === 'diy_selected' ? 'selected'
+      : latest.action_type === 'diy_failed' ? 'failed'
+      : 'none';
   };
   const selected = actions.filter(
     (a) => a.action_type === 'diy_selected' && stateOf(a.scan_id) === 'selected',
@@ -107,7 +112,7 @@ export async function GET(request: NextRequest) {
         .range(actionOffset, actionOffset + limit - 1),
       serverDb
         .from('user_actions')
-        .select('scan_id, action_type, impact_score')
+        .select('scan_id, action_type, impact_score, created_at')
         .eq('user_id', userId),
     ]);
     if (scansRes.error) throw scansRes.error;
@@ -117,6 +122,7 @@ export async function GET(request: NextRequest) {
       scan_id: string | null;
       action_type: string;
       impact_score: number;
+      created_at: string;
     }[];
     const counts = projectCounts(allActions);
     const totalScans = typeof scansRes.count === 'number' ? scansRes.count : (scansRes.data || []).length;

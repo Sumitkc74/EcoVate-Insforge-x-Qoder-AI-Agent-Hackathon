@@ -6,9 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/insforge';
 import { verifyWithGroq } from '@/lib/groq-vision';
-import { uploadImage } from '@/lib/storage';
+import { uploadImage, storageKeyFromUrl } from '@/lib/storage';
 import {
   assertServiceKey,
   requireUser,
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     // scan at all. /api/actions already 404s on a missing scan.
     const { data: scan } = await serverDb
       .from('scans')
-      .select('user_id')
+      .select('user_id, image_url')
       .eq('id', scanId)
       .single();
     if (!scan) {
@@ -211,11 +211,32 @@ export async function POST(request: NextRequest) {
     // photo — as before.
     const uploadPromise = uploadImage(imageFile, `verifications/${userId}`);
 
+    // The original scan photo, for the scan-match check below: the
+    // model sees both the finished project and the packaging it was
+    // supposedly made from. Read straight from storage (service
+    // key), never through the stored URL — it is a signed proxy link
+    // now. A missing photo is not fatal: the check is skipped and
+    // the verification proceeds as before.
+    const scanPhotoPromise = (async (): Promise<string | null> => {
+      const key = storageKeyFromUrl((scan as { image_url?: string | null }).image_url ?? null);
+      if (!key) return null;
+      try {
+        const { data: blob, error: dlError } = await serverStorage.from('user-uploads').download(key);
+        if (dlError || !blob) return null;
+        const contentType = blob.type || 'image/jpeg';
+        return `data:${contentType};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`;
+      } catch (err) {
+        console.error('Scan photo download failed, skipping scan-match check:', err);
+        return null;
+      }
+    })();
+    const scanPhoto = await scanPhotoPromise;
+
     // Try Gemini (free tier, server-side key) to verify the photo.
     // If both free models are unavailable, the submission still
     // succeeds as pending below — it never errors on a verification
     // AI failure, and it is stored as pending, not failed.
-    let verificationResult: { verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number } | null = null;
+    let verificationResult: { verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number; scanMatch?: boolean; scanMatchConfidence?: number } | null = null;
     let verificationUnavailable = false;
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -223,6 +244,22 @@ export async function POST(request: NextRequest) {
         const mimeMatch = base64Image.match(/^data:([^;]+);base64,/);
         const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
         const rawBase64 = base64Image.replace(/^data:[^;]+;base64,/, '');
+        // The model judges the finished project against the original
+        // scan photo too, when it could be downloaded: a generated
+        // image almost never reproduces the exact item from the scan.
+        const scanMatchAsk = scanPhoto
+          ? ` The second image is the original scan of the packaging this project was made from. Does the finished project plausibly come from that exact item — same container, same label and markings?`
+          : '';
+        const scanMatchFields = scanPhoto ? `, "scanMatch": true or false, "scanMatchConfidence": number between 0 and 1` : '';
+        const verifyPrompt = `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object.${scanMatchAsk} Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1${scanMatchFields}}.`;
+        const scanMimeMatch = scanPhoto?.match(/^data:([^;]+);base64,/);
+        const verifyParts = [
+          { text: verifyPrompt },
+          { inlineData: { mimeType, data: rawBase64 } },
+          ...(scanPhoto
+            ? [{ inlineData: { mimeType: scanMimeMatch ? scanMimeMatch[1] : 'image/jpeg', data: scanPhoto.replace(/^data:[^;]+;base64,/, '') } }]
+            : []),
+        ];
         const geminiResponse = await fetch(
           'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
           {
@@ -231,10 +268,7 @@ export async function POST(request: NextRequest) {
             signal: AbortSignal.timeout(25000),
             body: JSON.stringify({
               contents: [{
-                parts: [
-                  { text: `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object. Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1}.` },
-                  { inlineData: { mimeType, data: rawBase64 } },
-                ],
+                parts: verifyParts,
               }],
             }),
           },
@@ -251,6 +285,8 @@ export async function POST(request: NextRequest) {
               feedback: String(parsed.feedback || 'No feedback provided'),
               aiGenerated: Boolean(parsed.aiGenerated),
               aiGeneratedConfidence: Math.min(1, Math.max(0, Number(parsed.aiGeneratedConfidence) || 0)),
+              scanMatch: typeof parsed.scanMatch === 'boolean' ? parsed.scanMatch : undefined,
+              scanMatchConfidence: Math.min(1, Math.max(0, Number(parsed.scanMatchConfidence) || 0)),
             };
           }
         }
@@ -260,7 +296,7 @@ export async function POST(request: NextRequest) {
     }
     // Second free attempt: Groq, before falling back to pending.
     if (!verificationResult) {
-      verificationResult = await verifyWithGroq(base64Image, packagingType, projectTitle);
+      verificationResult = await verifyWithGroq(base64Image, packagingType, projectTitle, scanPhoto);
     }
     if (!verificationResult) {
       // Both free models failed: this is an outage, not a verdict.
@@ -297,15 +333,24 @@ export async function POST(request: NextRequest) {
     // reason and can be retried with a real photo.
     const looksAi = (verificationResult.aiGenerated ?? false) &&
       (verificationResult.aiGeneratedConfidence ?? 0) >= 0.85;
+    // Scan-match flag: same bar. Only a confident "this is not the
+    // scanned item" blocks points; an unsure answer, or a missing
+    // scan photo (check skipped), never blocks. The scan photo must
+    // have been sent for the flag to count — a hallucinated field
+    // on a photo-only call is ignored.
+    const scanMismatch = scanPhoto !== null && verificationResult.scanMatch === false &&
+      (verificationResult.scanMatchConfidence ?? 0) >= 0.85;
     const feedback = looksAi
       ? 'This looks like an AI-generated image rather than a photo of your completed project. Please upload a real photo of the finished project.'
-      : verificationResult.feedback;
-    const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85 && !looksAi;
+      : scanMismatch
+        ? 'The finished project doesn\'t look like it was made from the item in your original scan. Please upload a photo of the project made from that scanned item.'
+        : verificationResult.feedback;
+    const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85 && !looksAi && !scanMismatch;
     const actionType = verificationUnavailable
       ? 'diy_pending'
       : isApproved
         ? 'diy_completed'
-        : verificationResult.verified && !looksAi ? 'diy_pending' : 'diy_failed';
+        : verificationResult.verified && !looksAi && !scanMismatch ? 'diy_pending' : 'diy_failed';
 
     // Calculate impact score (0 for pending / failed)
     const impactScore = isApproved ? Math.round(10 + (estimatedCo2Saved * 20)) : 0;
@@ -366,7 +411,7 @@ export async function POST(request: NextRequest) {
       success: true,
       saved,
       saveError,
-      verified: verificationResult.verified && !looksAi,
+      verified: verificationResult.verified && !looksAi && !scanMismatch,
       confidence: verificationResult.confidence,
       feedback,
       verificationUnavailable,

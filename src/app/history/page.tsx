@@ -721,7 +721,12 @@ export default function HistoryPage() {
                             Try again →
                           </button>
                         )}
-                        {linkedScan && (
+                        {/* Re-choose only while a choice is live but
+                            unsubmitted: on a completed scan the verify
+                            route 409s (points already awarded), and on
+                            a pending one a new choice would orphan the
+                            submitted verification from the Pending tab. */}
+                        {linkedScan && (diy?.status === 'selected' || diy?.status === 'failed') && (
                           <button
                             onClick={() => handleAddDiy(linkedScan, true)}
                             disabled={addDiyId === linkedScan.id}

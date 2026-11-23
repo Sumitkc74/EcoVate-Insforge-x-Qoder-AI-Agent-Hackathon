@@ -10,7 +10,7 @@
 
 const GROQ_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b';
 
-async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 25000, temperature = 0.2): Promise<Record<string, unknown> | null> {
+async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 25000, temperature = 0.2, secondImageDataUrl?: string): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
   try {
@@ -29,6 +29,7 @@ async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 
             content: [
               { type: 'text', text: prompt },
               { type: 'image_url', image_url: { url: imageDataUrl } },
+              ...(secondImageDataUrl ? [{ type: 'image_url', image_url: { url: secondImageDataUrl } }] : []),
             ],
           },
         ],
@@ -211,10 +212,18 @@ export async function verifyWithGroq(
   imageDataUrl: string,
   packagingType: string,
   projectTitle: string,
-): Promise<{ verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number } | null> {
+  scanImageDataUrl?: string | null,
+): Promise<{ verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number; scanMatch?: boolean; scanMatchConfidence?: number } | null> {
+  const scanMatchAsk = scanImageDataUrl
+    ? ` The second image is the original scan of the packaging this project was made from. Does the finished project plausibly come from that exact item — same container, same label and markings? Reply with "scanMatch": true or false and "scanMatchConfidence": number between 0 and 1 for that judgement too.`
+    : '';
+  const scanMatchFields = scanImageDataUrl ? `, "scanMatch": true or false, "scanMatchConfidence": number between 0 and 1` : '';
   const parsed = await callGroqVision(
-    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object. Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1}.`,
+    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object.${scanMatchAsk} Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1${scanMatchFields}}.`,
     imageDataUrl,
+    25000,
+    0.2,
+    scanImageDataUrl ?? undefined,
   );
   if (!parsed) return null;
   return {
@@ -223,5 +232,7 @@ export async function verifyWithGroq(
     feedback: String(parsed.feedback || 'No feedback provided'),
     aiGenerated: Boolean(parsed.aiGenerated),
     aiGeneratedConfidence: Math.min(1, Math.max(0, Number(parsed.aiGeneratedConfidence) || 0)),
+    scanMatch: typeof parsed.scanMatch === 'boolean' ? parsed.scanMatch : undefined,
+    scanMatchConfidence: Math.min(1, Math.max(0, Number(parsed.scanMatchConfidence) || 0)),
   };
 }

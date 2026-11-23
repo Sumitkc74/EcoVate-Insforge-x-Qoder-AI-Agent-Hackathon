@@ -1,12 +1,17 @@
 /**
  * "Do it later" flow: choosing a DIY idea without finishing it yet.
  *
- * A scan's DIY state is derived from its user_actions:
- * - completed: a diy_completed action exists for the scan.
- * - pending: a verification was submitted (diy_pending), awaiting review.
- * - selected: a diy_selected action exists and nothing was submitted yet.
- * - failed: the last verification was rejected (diy_failed).
+ * A scan's DIY state is derived from its user_actions — the LATEST
+ * DIY action decides it:
+ * - completed: the latest DIY action is diy_completed.
+ * - pending: the latest is diy_pending, awaiting review.
+ * - selected: the latest is diy_selected and nothing was submitted yet.
+ * - failed: the latest is diy_failed.
  * - none: no DIY action at all — just scanned.
+ *
+ * (It used to be any-ever — completed if a diy_completed action
+ * existed at all — which buried a newer choice: a completed scan
+ * that was re-chosen never showed the new choice anywhere.)
  *
  * The selected action carries the chosen idea (project_title, plus
  * packaging_type / estimated_co2_saved when those columns exist), so
@@ -57,17 +62,35 @@ function latestByCreatedAt(actions: DiyActionLike[]): DiyActionLike | undefined 
 
 export function getScanDiyState(scanId: string, actions: DiyActionLike[]): ScanDiyState {
   const scanActions = actions.filter((a) => a.scan_id === scanId);
-  const has = (type: string) => scanActions.some((a) => a.action_type === type);
   const selected = latestByCreatedAt(
     scanActions.filter((a) => a.action_type === 'diy_selected'),
   );
   const failed = latestByCreatedAt(
     scanActions.filter((a) => a.action_type === 'diy_failed'),
   );
-  if (has('diy_completed')) return { status: 'completed', selectedAction: selected };
-  if (has('diy_pending')) return { status: 'pending', selectedAction: selected };
-  if (selected) return { status: 'selected', selectedAction: selected, failedAction: failed };
-  if (failed) return { status: 'failed', failedAction: failed };
+  // The state is the LATEST DIY action, not any-ever: a completed
+  // scan that gets a new choice shows the new choice as selected
+  // (the completed row keeps its points), and a failed attempt
+  // superseded by a new choice no longer reports the scan as
+  // failed. Any-ever precedence buried the newest choice.
+  const latest = latestByCreatedAt(
+    scanActions.filter((a) => a.action_type.startsWith('diy_')),
+  );
+  const status: ScanDiyStatus = !latest
+    ? 'none'
+    : latest.action_type === 'diy_completed'
+      ? 'completed'
+      : latest.action_type === 'diy_pending'
+        ? 'pending'
+        : latest.action_type === 'diy_selected'
+          ? 'selected'
+          : latest.action_type === 'diy_failed'
+            ? 'failed'
+            : 'none';
+  if (status === 'completed') return { status, selectedAction: selected };
+  if (status === 'pending') return { status, selectedAction: selected };
+  if (status === 'selected') return { status, selectedAction: selected, failedAction: failed };
+  if (status === 'failed') return { status, failedAction: failed };
   return { status: 'none' };
 }
 
