@@ -403,7 +403,7 @@ function VerifyContent() {
         {/* Photo privacy disclaimer */}
         <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-3">
           <p className="text-xs text-amber-800">
-            Photo privacy: photos you upload are stored in a public bucket and can be viewed by anyone with the link. Please avoid photos showing people, personal information, or the inside of your home.
+            Photo privacy: your photos are stored privately and are only shown inside the app. Your profile photo is visible on the leaderboard. Please avoid photos showing people, personal information, or the inside of your home.
           </p>
         </div>
 
