@@ -1,13 +1,27 @@
 /**
  * POST /api/verify
- * 
- * Verification Agent endpoint that checks DIY completion photos.
- * Awards impact points if verification passes.
+ *
+ * DIY verification, two modes.
+ *
+ * Points mode (default): the photo must be taken with the in-app
+ * camera and show the challenge code — issued by
+ * /api/verify/challenge, written on paper beside the finished
+ * project. The server decides the award from two separate results:
+ * the project match and the visible evidence (the code). A visual
+ * match alone earns nothing, and the model's guess about whether an
+ * image is AI-generated is never an award input.
+ *
+ * Feedback mode (feedbackOnly=true): a gallery upload shows whether
+ * a photo matches the selected project. No points, no History row,
+ * no attempt spent — the match check only.
+ *
+ * A failed or pending project can always be retried: each attempt
+ * requests a fresh code. Only an awarded project is locked (409).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb, serverStorage } from '@/lib/insforge';
-import { verifyWithGroq } from '@/lib/groq-vision';
+import { verifyChallengeWithGroq, verifyMatchWithGroq, ChallengeVerdict } from '@/lib/groq-vision';
 import { uploadImage, storageKeyFromUrl } from '@/lib/storage';
 import {
   assertServiceKey,
@@ -20,6 +34,42 @@ import {
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
+import { validateChallengeToken, normalizeCode } from '@/lib/verify-challenge';
+
+type MatchVerdict = { verified: boolean; confidence: number; feedback: string };
+
+async function downloadScanPhoto(scanImageUrl: string | null): Promise<string | null> {
+  const key = storageKeyFromUrl(scanImageUrl ?? null);
+  if (!key) return null;
+  try {
+    const { data: blob, error: dlError } = await serverStorage.from('user-uploads').download(key);
+    if (dlError || !blob) return null;
+    const contentType = blob.type || 'image/jpeg';
+    return `data:${contentType};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`;
+  } catch (err) {
+    console.error('Scan photo download failed, skipping scan-match check:', err);
+    return null;
+  }
+}
+
+function parseChallengeVerdict(parsed: Record<string, unknown>): ChallengeVerdict {
+  const codeSeen = typeof parsed.codeSeen === 'string' && parsed.codeSeen.trim() !== '' ? parsed.codeSeen.trim() : null;
+  return {
+    projectMatch: Boolean(parsed.projectMatch),
+    projectMatchConfidence: Math.min(1, Math.max(0, Number(parsed.projectMatchConfidence) || 0)),
+    codeSeen,
+    codeVisible: Boolean(parsed.codeVisible) && codeSeen !== null,
+    feedback: String(parsed.feedback || 'No feedback provided'),
+  };
+}
+
+function parseMatchVerdict(parsed: Record<string, unknown>): MatchVerdict {
+  return {
+    verified: Boolean(parsed.verified),
+    confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
+    feedback: String(parsed.feedback || 'No feedback provided'),
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +85,8 @@ export async function POST(request: NextRequest) {
     const scanId = formData.get('scanId') as string;
     const projectTitle = formData.get('projectTitle') as string;
     const packagingType = formData.get('packagingType') as string;
+    const feedbackOnly = formData.get('feedbackOnly') === 'true';
+    const challengeToken = formData.get('challengeToken') as string | null;
 
     // Check each field individually for better error messages
     const missingFields: string[] = [];
@@ -42,6 +94,7 @@ export async function POST(request: NextRequest) {
     if (!scanId) missingFields.push('scanId');
     if (!projectTitle) missingFields.push('projectTitle');
     if (!packagingType) missingFields.push('packagingType');
+    if (!feedbackOnly && !challengeToken) missingFields.push('challengeToken');
 
     if (missingFields.length > 0) {
       return NextResponse.json({
@@ -94,6 +147,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
     }
 
+    // Convert image to base64 for AI processing
+    const bytes = await imageFile.arrayBuffer();
+    const base64Image = `data:${imageFile.type};base64,${Buffer.from(bytes).toString('base64')}`;
+
+    // The original scan photo, for the match check: the model sees
+    // both the finished project and the packaging it was supposedly
+    // made from. Read straight from storage (service key), never
+    // through the stored URL — it is a signed proxy link now. A
+    // missing photo is not fatal: the check is skipped and the
+    // verification proceeds as before.
+    const scanPhoto = await downloadScanPhoto((scan as { image_url?: string | null }).image_url ?? null);
+
+    // --- Feedback mode: match check only. No points, no History
+    // row, no attempt spent, no code needed. ---
+    if (feedbackOnly) {
+      const verdict = await runMatchCheck(base64Image, packagingType, projectTitle, scanPhoto);
+      if (!verdict) {
+        return NextResponse.json({
+          success: true,
+          feedbackOnly: true,
+          verified: false,
+          confidence: 0,
+          feedback: 'Automatic checking is unavailable right now. Please try again later.',
+          verificationUnavailable: true,
+        });
+      }
+      return NextResponse.json({
+        success: true,
+        feedbackOnly: true,
+        verified: verdict.verified,
+        confidence: verdict.confidence,
+        feedback: verdict.feedback,
+      });
+    }
+
+    // --- Points mode below. ---
+
     // A completed project cannot be verified again for more points:
     // every approved re-verify used to insert another diy_completed
     // row worth up to 110 pts. Checked before the cap and the AI
@@ -112,6 +202,25 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
+
+    // The challenge token is validated before any cap or AI work, so
+    // a bad or expired code burns no verification attempt. A retry
+    // always requests a fresh code, so an expired code just means
+    // getting a new one — the client does that from `codeExpired`.
+    const challenge = await validateChallengeToken(challengeToken as string, scanId);
+    if (!challenge.ok) {
+      if (challenge.reason === 'expired') {
+        return NextResponse.json(
+          { error: 'Your code expired. Please get a fresh code and try again.', codeExpired: true },
+          { status: 400 },
+        );
+      }
+      return NextResponse.json(
+        { error: 'That code is not valid for this project. Please get a fresh code and try again.' },
+        { status: 400 },
+      );
+    }
+    const issuedCode = challenge.code;
 
     // Points come from the chosen DIY idea, never the client: the
     // client value used to be trusted as a fallback, so any scan
@@ -198,10 +307,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert image to base64 for AI processing
-    const bytes = await imageFile.arrayBuffer();
-    const base64Image = `data:${imageFile.type};base64,${Buffer.from(bytes).toString('base64')}`;
-
     // Upload the photo in parallel with the AI calls below (same as
     // the scan route): the upload needs only the file, not the AI
     // result, so it used to sit on the verification's critical path
@@ -211,94 +316,14 @@ export async function POST(request: NextRequest) {
     // photo — as before.
     const uploadPromise = uploadImage(imageFile, `verifications/${userId}`);
 
-    // The original scan photo, for the scan-match check below: the
-    // model sees both the finished project and the packaging it was
-    // supposedly made from. Read straight from storage (service
-    // key), never through the stored URL — it is a signed proxy link
-    // now. A missing photo is not fatal: the check is skipped and
-    // the verification proceeds as before.
-    const scanPhotoPromise = (async (): Promise<string | null> => {
-      const key = storageKeyFromUrl((scan as { image_url?: string | null }).image_url ?? null);
-      if (!key) return null;
-      try {
-        const { data: blob, error: dlError } = await serverStorage.from('user-uploads').download(key);
-        if (dlError || !blob) return null;
-        const contentType = blob.type || 'image/jpeg';
-        return `data:${contentType};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`;
-      } catch (err) {
-        console.error('Scan photo download failed, skipping scan-match check:', err);
-        return null;
-      }
-    })();
-    const scanPhoto = await scanPhotoPromise;
-
-    // Try Gemini (free tier, server-side key) to verify the photo.
-    // If both free models are unavailable, the submission still
-    // succeeds as pending below — it never errors on a verification
-    // AI failure, and it is stored as pending, not failed.
-    let verificationResult: { verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number; scanMatch?: boolean; scanMatchConfidence?: number } | null = null;
+    // Two free attempts: Gemini, then Groq. If both fail, the
+    // submission still succeeds as pending below — it never errors
+    // on a verification AI failure, and it is stored as pending,
+    // not failed.
+    let verdict: ChallengeVerdict | null = null;
     let verificationUnavailable = false;
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
-      try {
-        const mimeMatch = base64Image.match(/^data:([^;]+);base64,/);
-        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-        const rawBase64 = base64Image.replace(/^data:[^;]+;base64,/, '');
-        // The model judges the finished project against the original
-        // scan photo too, when it could be downloaded: a generated
-        // image almost never reproduces the exact item from the scan.
-        const scanMatchAsk = scanPhoto
-          ? ` The second image is the original scan of the packaging this project was made from. Does the finished project plausibly come from that exact item — same container, same label and markings?`
-          : '';
-        const scanMatchFields = scanPhoto ? `, "scanMatch": true or false, "scanMatchConfidence": number between 0 and 1` : '';
-        const verifyPrompt = `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object.${scanMatchAsk} Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1${scanMatchFields}}.`;
-        const scanMimeMatch = scanPhoto?.match(/^data:([^;]+);base64,/);
-        const verifyParts = [
-          { text: verifyPrompt },
-          { inlineData: { mimeType, data: rawBase64 } },
-          ...(scanPhoto
-            ? [{ inlineData: { mimeType: scanMimeMatch ? scanMimeMatch[1] : 'image/jpeg', data: scanPhoto.replace(/^data:[^;]+;base64,/, '') } }]
-            : []),
-        ];
-        const geminiResponse = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-            signal: AbortSignal.timeout(25000),
-            body: JSON.stringify({
-              contents: [{
-                parts: verifyParts,
-              }],
-            }),
-          },
-        );
-        if (geminiResponse.ok) {
-          const geminiJson = await geminiResponse.json();
-          const content = geminiJson?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('') || '';
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            verificationResult = {
-              verified: Boolean(parsed.verified),
-              confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
-              feedback: String(parsed.feedback || 'No feedback provided'),
-              aiGenerated: Boolean(parsed.aiGenerated),
-              aiGeneratedConfidence: Math.min(1, Math.max(0, Number(parsed.aiGeneratedConfidence) || 0)),
-              scanMatch: typeof parsed.scanMatch === 'boolean' ? parsed.scanMatch : undefined,
-              scanMatchConfidence: Math.min(1, Math.max(0, Number(parsed.scanMatchConfidence) || 0)),
-            };
-          }
-        }
-      } catch (err) {
-        console.error('Gemini verification unavailable, falling back to pending:', err);
-      }
-    }
-    // Second free attempt: Groq, before falling back to pending.
-    if (!verificationResult) {
-      verificationResult = await verifyWithGroq(base64Image, packagingType, projectTitle, scanPhoto);
-    }
-    if (!verificationResult) {
+    verdict = await runChallengeCheck(base64Image, packagingType, projectTitle, scanPhoto);
+    if (!verdict) {
       // Both free models failed: this is an outage, not a verdict.
       // It used to be stored as diy_failed with 0% confidence shown
       // as "the AI is 0% confident this photo does not show a
@@ -306,9 +331,11 @@ export async function POST(request: NextRequest) {
       // project was "saved as pending". Store it as pending, and
       // tell the page so it shows Pending, not a 0% verdict.
       verificationUnavailable = true;
-      verificationResult = {
-        verified: false,
-        confidence: 0,
+      verdict = {
+        projectMatch: false,
+        projectMatchConfidence: 0,
+        codeSeen: null,
+        codeVisible: false,
         feedback: 'Automatic verification is unavailable right now, so your project is saved as pending. You can check it in History.',
       };
     }
@@ -320,40 +347,48 @@ export async function POST(request: NextRequest) {
       console.error('Image upload error:', uploadError);
     }
 
-    // Determine verification status
-    // verified=false means the AI found this is NOT a completed project,
-    // so it is a failed attempt, not pending. Only verified=true with
-    // confidence below 0.85 stays pending — plus the outage case
-    // above, where no AI ever judged the photo.
-    // AI-image flag: the model is also asked whether the photo looks
-    // AI-generated. Only a confident flag blocks points — the same
-    // 0.85 bar as approval — so a miss costs nothing and a
-    // low-confidence suspicion is ignored; a real photo is not
-    // punished for a guess. A flagged photo fails with a clear
-    // reason and can be retried with a real photo.
-    const looksAi = (verificationResult.aiGenerated ?? false) &&
-      (verificationResult.aiGeneratedConfidence ?? 0) >= 0.85;
-    // Scan-match flag: same bar. Only a confident "this is not the
-    // scanned item" blocks points; an unsure answer, or a missing
-    // scan photo (check skipped), never blocks. The scan photo must
-    // have been sent for the flag to count — a hallucinated field
-    // on a photo-only call is ignored.
-    const scanMismatch = scanPhoto !== null && verificationResult.scanMatch === false &&
-      (verificationResult.scanMatchConfidence ?? 0) >= 0.85;
-    const feedback = looksAi
-      ? 'This looks like an AI-generated image rather than a photo of your completed project. Please upload a real photo of the finished project.'
-      : scanMismatch
-        ? 'The finished project doesn\'t look like it was made from the item in your original scan. Please upload a photo of the project made from that scanned item.'
-        : verificationResult.feedback;
-    const isApproved = verificationResult.verified && verificationResult.confidence >= 0.85 && !looksAi && !scanMismatch;
+    // Determine the award. Two separate results, both required:
+    // the project match, and the visible evidence — the code read
+    // from the photo must be the code issued for this attempt. A
+    // visual match alone earns nothing, and no judgement about
+    // whether the image looks AI-generated is consulted at all.
+    const codeOk = verdict.codeVisible
+      && verdict.codeSeen !== null
+      && normalizeCode(verdict.codeSeen) === normalizeCode(issuedCode);
+    const isApproved = verdict.projectMatch && verdict.projectMatchConfidence >= 0.85 && codeOk;
+
+    // If the evidence is unclear, say so plainly and ask for a
+    // clearer capture — that is a failed attempt, not a verdict on
+    // the project, and the user retries with a fresh code.
+    const feedback = verificationUnavailable
+      ? verdict.feedback
+      : !verdict.codeVisible
+        ? 'We couldn\u2019t read the code in the photo. Make sure the code is written clearly on paper next to your project, then take a clearer photo with the camera.'
+        : !codeOk
+          ? 'The code in the photo doesn\u2019t match the one shown for this attempt. Please get a fresh code and try again.'
+          : verdict.feedback;
     const actionType = verificationUnavailable
       ? 'diy_pending'
       : isApproved
         ? 'diy_completed'
-        : verificationResult.verified && !looksAi && !scanMismatch ? 'diy_pending' : 'diy_failed';
+        : verdict.projectMatch && verdict.projectMatchConfidence < 0.85 ? 'diy_pending' : 'diy_failed';
 
     // Calculate impact score (0 for pending / failed)
     const impactScore = isApproved ? Math.round(10 + (estimatedCo2Saved * 20)) : 0;
+
+    // Log the verdict numbers server-side, and save them on the row
+    // when the columns exist, so a later review can answer what the
+    // model actually said instead of guessing from the feedback text.
+    console.log('Verify verdict:', {
+      scanId,
+      projectMatch: verdict.projectMatch,
+      projectMatchConfidence: verdict.projectMatchConfidence,
+      codeSeen: verdict.codeSeen,
+      codeVisible: verdict.codeVisible,
+      codeOk,
+      isApproved,
+      impactScore,
+    });
 
     // Always save the verification attempt — and report the result
     // honestly. Previously a failed insert was only logged server-side
@@ -375,7 +410,9 @@ export async function POST(request: NextRequest) {
       // project_title TEXT. Until that SQL is run, fall back to saving
       // without them so the project still lands in History (just
       // without the reason/title); the reason is then only visible on
-      // the verify result page itself.
+      // the verify result page itself. The verdict columns
+      // (verify_match_confidence, verify_code_seen, verify_code_ok)
+      // fall back the same way.
       const baseAction = {
         user_id: userId,
         scan_id: scanId,
@@ -383,13 +420,26 @@ export async function POST(request: NextRequest) {
         impact_score: impactScore,
         image_url: imageUrl,
       };
-      let insertError = (await serverDb.from('user_actions').insert([{
+      const withFeedback = {
         ...baseAction,
         feedback,
         project_title: projectTitle,
-      }])).error;
-      if (insertError && /column|feedback|project_title/i.test(insertError.message)) {
-        insertError = (await serverDb.from('user_actions').insert([baseAction])).error;
+      };
+      const withVerdict = {
+        ...withFeedback,
+        verify_match_confidence: verdict.projectMatchConfidence,
+        verify_code_seen: verdict.codeSeen,
+        verify_code_ok: codeOk,
+      };
+      const attempts: Array<Record<string, unknown>> = [withVerdict, withFeedback, baseAction];
+      let insertError: { message?: string } | null = null;
+      for (const row of attempts) {
+        insertError = (await serverDb.from('user_actions').insert([row])).error;
+        if (!insertError) break;
+        // Only fall back a tier when the failure is a missing
+        // column; any other error (constraint, RLS, network) stops
+        // here so a real problem is reported, not hidden.
+        if (!/column/i.test(insertError.message || '')) break;
       }
       if (insertError) {
         saved = false;
@@ -411,17 +461,133 @@ export async function POST(request: NextRequest) {
       success: true,
       saved,
       saveError,
-      verified: verificationResult.verified && !looksAi && !scanMismatch,
-      confidence: verificationResult.confidence,
+      // `verified` is the project-match verdict (drives the
+      // Pending/Not-verified wording); `approved` is the award
+      // (match + code) and is what earns points.
+      verified: verdict.projectMatch,
+      confidence: verdict.projectMatchConfidence,
+      approved: isApproved,
+      codeOk,
+      codeSeen: verdict.codeSeen,
       feedback,
       verificationUnavailable,
       impactScore,
       imageUrl,
     });
-
   } catch (error) {
-    return handleRouteError(error, 'Verify API error:');
+    return handleRouteError(error, 'Verification API error:');
   }
 }
 
-export const maxDuration = 60;
+// Points-path AI check: Gemini first, Groq second. The prompt asks
+// for the two separate judgements the award needs — project match
+// and the code read from the photo.
+async function runChallengeCheck(
+  base64Image: string,
+  packagingType: string,
+  projectTitle: string,
+  scanPhoto: string | null,
+): Promise<ChallengeVerdict | null> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const mimeMatch = base64Image.match(/^data:([^;]+);base64,/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const rawBase64 = base64Image.replace(/^data:[^;]+;base64,/, '');
+      // The model judges the finished project against the original
+      // scan photo too, when it could be downloaded: a generated
+      // image almost never reproduces the exact item from the scan.
+      const scanMatchAsk = scanPhoto
+        ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
+        : '';
+      const verifyPrompt = `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". First, does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Second, there should be a short code handwritten on a piece of paper in the photo, next to the project. Read exactly what the code says and report it character for character. Do not guess: if the code is missing, blurry or unreadable, say so. Respond ONLY with a JSON object: {"projectMatch": true or false, "projectMatchConfidence": number between 0 and 1, "codeSeen": "the code exactly as you read it, or null if it cannot be read", "codeVisible": true or false, "feedback": "brief explanation"}.`;
+      const scanMimeMatch = scanPhoto?.match(/^data:([^;]+);base64,/);
+      const verifyParts = [
+        { text: verifyPrompt },
+        { inlineData: { mimeType, data: rawBase64 } },
+        ...(scanPhoto
+          ? [{ inlineData: { mimeType: scanMimeMatch ? scanMimeMatch[1] : 'image/jpeg', data: scanPhoto.replace(/^data:[^;]+;base64,/, '') } }]
+          : []),
+      ];
+      const geminiResponse = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+          signal: AbortSignal.timeout(25000),
+          body: JSON.stringify({
+            contents: [{
+              parts: verifyParts,
+            }],
+          }),
+        },
+      );
+      if (geminiResponse.ok) {
+        const geminiJson = await geminiResponse.json();
+        const content = geminiJson?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('') || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return parseChallengeVerdict(JSON.parse(jsonMatch[0]) as Record<string, unknown>);
+        }
+      }
+    } catch (err) {
+      console.error('Gemini verification unavailable, falling back to Groq:', err);
+    }
+  }
+  // Second free attempt: Groq, before falling back to pending.
+  return verifyChallengeWithGroq(base64Image, packagingType, projectTitle, scanPhoto);
+}
+
+// Feedback-only match check: Gemini first, Groq second. Same match
+// question, no code involved.
+async function runMatchCheck(
+  base64Image: string,
+  packagingType: string,
+  projectTitle: string,
+  scanPhoto: string | null,
+): Promise<MatchVerdict | null> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const mimeMatch = base64Image.match(/^data:([^;]+);base64,/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const rawBase64 = base64Image.replace(/^data:[^;]+;base64,/, '');
+      const scanMatchAsk = scanPhoto
+        ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
+        : '';
+      const matchPrompt = `You are evaluating a DIY upcycling project photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`;
+      const scanMimeMatch = scanPhoto?.match(/^data:([^;]+);base64,/);
+      const matchParts = [
+        { text: matchPrompt },
+        { inlineData: { mimeType, data: rawBase64 } },
+        ...(scanPhoto
+          ? [{ inlineData: { mimeType: scanMimeMatch ? scanMimeMatch[1] : 'image/jpeg', data: scanPhoto.replace(/^data:[^;]+;base64,/, '') } }]
+          : []),
+      ];
+      const geminiResponse = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+          signal: AbortSignal.timeout(25000),
+          body: JSON.stringify({
+            contents: [{
+              parts: matchParts,
+            }],
+          }),
+        },
+      );
+      if (geminiResponse.ok) {
+        const geminiJson = await geminiResponse.json();
+        const content = geminiJson?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('') || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return parseMatchVerdict(JSON.parse(jsonMatch[0]) as Record<string, unknown>);
+        }
+      }
+    } catch (err) {
+      console.error('Gemini match check unavailable, falling back to Groq:', err);
+    }
+  }
+  return verifyMatchWithGroq(base64Image, packagingType, projectTitle, scanPhoto);
+}

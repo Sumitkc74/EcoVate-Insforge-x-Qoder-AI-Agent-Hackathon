@@ -208,18 +208,62 @@ export async function checkDetailsWithGroq(
   };
 }
 
-export async function verifyWithGroq(
+export type ChallengeVerdict = {
+  projectMatch: boolean;
+  projectMatchConfidence: number;
+  codeSeen: string | null;
+  codeVisible: boolean;
+  feedback: string;
+};
+
+// Points-path verdict from Groq. Two separate judgements, as the
+// award needs both: does the photo show the selected DIY project
+// made from the scanned packaging, and is the challenge code
+// readable in it? The code is read, never guessed — if it cannot be
+// read clearly, codeSeen is null and the submission fails with a
+// retake message, not a guess. No AI-generated judgement: the
+// evidence check (the code) replaces it.
+export async function verifyChallengeWithGroq(
   imageDataUrl: string,
   packagingType: string,
   projectTitle: string,
   scanImageDataUrl?: string | null,
-): Promise<{ verified: boolean; confidence: number; feedback: string; aiGenerated?: boolean; aiGeneratedConfidence?: number; scanMatch?: boolean; scanMatchConfidence?: number } | null> {
+): Promise<ChallengeVerdict | null> {
   const scanMatchAsk = scanImageDataUrl
-    ? ` The second image is the original scan of the packaging this project was made from. Does the finished project plausibly come from that exact item — same container, same label and markings? Reply with "scanMatch": true or false and "scanMatchConfidence": number between 0 and 1 for that judgement too.`
+    ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
     : '';
-  const scanMatchFields = scanImageDataUrl ? `, "scanMatch": true or false, "scanMatchConfidence": number between 0 and 1` : '';
   const parsed = await callGroqVision(
-    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show a completed DIY upcycling project using that packaging? Be fair but accurate. Also judge whether this image looks AI-generated (synthetic) rather than a real photograph of a physical object.${scanMatchAsk} Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation", "aiGenerated": true or false, "aiGeneratedConfidence": number between 0 and 1${scanMatchFields}}.`,
+    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". First, does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Second, there should be a short code handwritten on a piece of paper in the photo, next to the project. Read exactly what the code says and report it character for character. Do not guess: if the code is missing, blurry or unreadable, say so. Reply with a JSON object only: {"projectMatch": true or false, "projectMatchConfidence": number between 0 and 1, "codeSeen": the code exactly as you read it, or null if it cannot be read, "codeVisible": true or false, "feedback": "brief explanation"}.`,
+    imageDataUrl,
+    25000,
+    0.2,
+    scanImageDataUrl ?? undefined,
+  );
+  if (!parsed) return null;
+  const codeSeen = typeof parsed.codeSeen === 'string' && parsed.codeSeen.trim() !== '' ? parsed.codeSeen.trim() : null;
+  return {
+    projectMatch: Boolean(parsed.projectMatch),
+    projectMatchConfidence: Math.min(1, Math.max(0, Number(parsed.projectMatchConfidence) || 0)),
+    codeSeen,
+    codeVisible: Boolean(parsed.codeVisible) && codeSeen !== null,
+    feedback: String(parsed.feedback || 'No feedback provided'),
+  };
+}
+
+// Feedback-only match check from Groq: gallery uploads show whether
+// a photo matches the selected project, but earn no points, so no
+// code is involved and no AI-generated judgement is needed.
+export async function verifyMatchWithGroq(
+  imageDataUrl: string,
+  packagingType: string,
+  projectTitle: string,
+  scanImageDataUrl?: string | null,
+): Promise<{ verified: boolean; confidence: number; feedback: string } | null> {
+  const scanMatchAsk = scanImageDataUrl
+    ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
+    : '';
+  const parsed = await callGroqVision(
+    `You are evaluating a DIY upcycling project photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`,
     imageDataUrl,
     25000,
     0.2,
@@ -230,9 +274,5 @@ export async function verifyWithGroq(
     verified: Boolean(parsed.verified),
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
     feedback: String(parsed.feedback || 'No feedback provided'),
-    aiGenerated: Boolean(parsed.aiGenerated),
-    aiGeneratedConfidence: Math.min(1, Math.max(0, Number(parsed.aiGeneratedConfidence) || 0)),
-    scanMatch: typeof parsed.scanMatch === 'boolean' ? parsed.scanMatch : undefined,
-    scanMatchConfidence: Math.min(1, Math.max(0, Number(parsed.scanMatchConfidence) || 0)),
   };
 }

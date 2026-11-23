@@ -1,17 +1,28 @@
 /**
  * Verification Page
- * 
- * User submits completion photo for DIY project verification.
- * Awards impact points if verified.
+ *
+ * Two ways to check a completed DIY project:
+ *
+ * - For points: take a photo with the in-app camera showing the
+ *   challenge code (issued when this page loads) written on paper
+ *   beside the finished project. The server awards points only when
+ *   the project matches AND the code is visible in the photo. A
+ *   visual match alone earns nothing.
+ * - For feedback only: upload a gallery photo to see whether it
+ *   matches the project. No points, no History row, no attempt spent.
+ *
+ * A failed or pending project can always be retried — each retry
+ * gets a fresh code. Only an awarded project is locked.
  */
 
 'use client';
 
-import { useState, useRef, useEffect, Suspense } from 'react';
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { downscaleImageFile } from '@/lib/image-resize';
 import UserMenu from '@/components/UserMenu';
+import CameraCapture from '@/components/CameraCapture';
 import { openAddDiy } from '@/lib/diy-continue';
 
 // Loading fallback
@@ -23,12 +34,14 @@ function VerifyLoading() {
   );
 }
 
+type Challenge = { code: string; token: string; expiresAt: number };
+
 // Main verification component
 function VerifyContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [scanId, setScanId] = useState('');
   const [projectTitle, setProjectTitle] = useState('');
   const [packagingType, setPackagingType] = useState('');
@@ -41,9 +54,19 @@ function VerifyContent() {
     avatar: string | null;
     hasCustomAvatar?: boolean;
   } | null>(null);
-  
+
+  // Challenge code for the points path: issued per attempt, good
+  // for 15 minutes. A retry always fetches a fresh one.
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [challengeLoading, setChallengeLoading] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
+
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Which path the chosen photo will take: camera capture earns
+  // points, a gallery upload is feedback only.
+  const [captureMode, setCaptureMode] = useState<'points' | 'feedback' | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [result, setResult] = useState<{
@@ -51,11 +74,40 @@ function VerifyContent() {
     confidence: number;
     feedback: string;
     impactScore: number;
+    approved?: boolean;
+    codeOk?: boolean;
+    codeSeen?: string | null;
+    feedbackOnly?: boolean;
     verificationUnavailable?: boolean;
     saved?: boolean;
     saveError?: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchChallenge = useCallback(async () => {
+    if (!scanId) return false;
+    setChallengeLoading(true);
+    setChallengeError(null);
+    try {
+      const response = await authedFetch('/api/verify/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanId }),
+      });
+      const data = await readApiJson(response);
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not get a verification code');
+      }
+      setChallenge({ code: data.code, token: data.token, expiresAt: data.expiresAt });
+      return true;
+    } catch (e) {
+      setChallenge(null);
+      setChallengeError((e as Error).message);
+      return false;
+    } finally {
+      setChallengeLoading(false);
+    }
+  }, [scanId]);
 
   useEffect(() => {
     setScanId(searchParams.get('scanId') || '');
@@ -76,6 +128,12 @@ function VerifyContent() {
     }).catch(() => {});
   }, [searchParams]);
 
+  // A fresh code per attempt: fetched when the page loads for this
+  // scan, and again on every retry.
+  useEffect(() => {
+    if (scanId) fetchChallenge();
+  }, [scanId, fetchChallenge]);
+
   // Back to the DIY options for this scan to pick a different idea.
   const handleChooseAgain = async () => {
     if (!scanId) return;
@@ -90,13 +148,17 @@ function VerifyContent() {
     }
   };
 
-  // Back to the upload form for the SAME chosen DIY, to try a new photo.
-  const handleRetry = () => {
+  // Back to the upload form for the SAME chosen DIY, to try again.
+  // A retry always gets a fresh code — the old photo cannot carry
+  // it, so the preview is cleared too.
+  const handleRetry = async () => {
     setIsComplete(false);
     setResult(null);
     setSelectedFile(null);
     setPreviewImage(null);
+    setCaptureMode(null);
     setError(null);
+    await fetchChallenge();
   };
 
   // The photo is downscaled to 1024px on the longest side first
@@ -113,13 +175,30 @@ function VerifyContent() {
       const resized = await downscaleImageFile(file);
       setSelectedFile(resized);
       setPreviewImage(URL.createObjectURL(resized));
+      // Gallery uploads are feedback only — they never earn points.
+      setCaptureMode('feedback');
       setError(null);
     }
+    // Reset the input so the same file can be picked again.
+    event.target.value = '';
+  };
+
+  const handleCameraCapture = async (file: File) => {
+    const resized = await downscaleImageFile(file);
+    setSelectedFile(resized);
+    setPreviewImage(URL.createObjectURL(resized));
+    setCaptureMode('points');
+    setCameraOpen(false);
+    setError(null);
   };
 
   const handleSubmit = async () => {
     if (!selectedFile) {
       setError('Please take a photo of your completed project');
+      return;
+    }
+    if (captureMode === 'points' && !challenge) {
+      setError('No verification code yet — please get a fresh code and try again.');
       return;
     }
 
@@ -139,7 +218,11 @@ function VerifyContent() {
       formData.append('scanId', scanId);
       formData.append('projectTitle', projectTitle);
       formData.append('packagingType', packagingType);
-      formData.append('estimatedCo2Saved', String(estimatedCo2Saved));
+      if (captureMode === 'points' && challenge) {
+        formData.append('challengeToken', challenge.token);
+      } else {
+        formData.append('feedbackOnly', 'true');
+      }
 
       const response = await authedFetch('/api/verify', {
         method: 'POST',
@@ -149,6 +232,14 @@ function VerifyContent() {
       const data = await readApiJson(response);
 
       if (!response.ok) {
+        // An expired code just needs a fresh one: fetch it, clear
+        // the photo (it cannot carry the new code) and say so.
+        if (data.codeExpired) {
+          await fetchChallenge();
+          setSelectedFile(null);
+          setPreviewImage(null);
+          setCaptureMode(null);
+        }
         throw new Error(data.error || 'Verification failed');
       }
 
@@ -162,10 +253,77 @@ function VerifyContent() {
   };
 
   if (isComplete && result) {
+    // Feedback-only result: a match check, not an award.
+    if (result.feedbackOnly) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 text-center">
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${result.verified ? 'bg-green-100' : 'bg-red-100'}`}>
+              {result.verified ? (
+                <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              {result.verified ? 'Looks Like a Match' : 'Doesn\u2019t Look Like a Match Yet'}
+            </h1>
+            <p className="text-gray-600 mb-4">{result.feedback}</p>
+            <p className="text-sm text-gray-500 mb-6">
+              {result.verified
+                ? `The AI is ${Math.floor(result.confidence * 100)}% confident this shows your project.`
+                : `The AI is ${Math.floor(result.confidence * 100)}% confident this photo does not show your project yet.`}
+            </p>
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-6">
+              This was a feedback check only — no points were awarded. To earn points, take a photo with the camera showing your verification code.
+            </p>
+            <div className="space-y-2 mb-4">
+              <button
+                onClick={handleRetry}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+              >
+                Take a Camera Photo for Points
+              </button>
+              <button
+                onClick={handleChooseAgain}
+                disabled={choosingAgain}
+                className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
+              >
+                {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
+              </button>
+            </div>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+            >
+              View Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Points result: green only when the award was actually made
+    // (match + code). A match without the code is a failed attempt,
+    // not a pending one; a low-confidence match is pending.
+    const codeFailed = result.codeOk === false;
+    const heading = result.approved
+      ? 'Project Verified!'
+      : result.verificationUnavailable
+        ? 'Verification Pending'
+        : codeFailed
+          ? 'Code Not Verified'
+          : result.verified
+            ? 'Verification Pending'
+            : 'Project Not Verified';
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 text-center">
-          {result.verified && result.confidence >= 0.85 ? (
+          {result.approved ? (
             <>
               <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
                 <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,7 +332,7 @@ function VerifyContent() {
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Project Verified!</h1>
               <p className="text-gray-600 mb-6">{result.feedback}</p>
-              
+
               <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-6 mb-6">
                 <p className="text-green-100 text-sm mb-1">You earned</p>
                 <p className="text-4xl font-bold text-white">{result.impactScore} points</p>
@@ -195,8 +353,10 @@ function VerifyContent() {
             <>
               {/* An AI outage is pending, not a verdict: the amber
                   icon and Pending heading, never a red X with a
-                  "0% confident" line (see below). */}
-              {result.verified || result.verificationUnavailable ? (
+                  "0% confident" line (see below). A code failure is
+                  a failed attempt, so it gets the red icon even when
+                  the project itself matched. */}
+              {!codeFailed && (result.verified || result.verificationUnavailable) ? (
                 <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
                   <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -209,7 +369,7 @@ function VerifyContent() {
                   </svg>
                 </div>
               )}
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">{result.verified || result.verificationUnavailable ? 'Verification Pending' : 'Project Not Verified'}</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">{heading}</h1>
               <p className="text-gray-600 mb-6">{result.feedback}</p>
               {result.saved === false && (
                 <p className="text-sm text-red-600 mb-6">
@@ -219,8 +379,10 @@ function VerifyContent() {
               {/* Floor, don't round: a pending result at 84.5% must
                   never display as 85% next to "85%+ is needed".
                   And when the AI was unavailable there is no verdict
-                  at all — never show "0% confident". */}
-              {!result.verificationUnavailable && (
+                  at all — never show "0% confident". A code failure
+                  is explained by the feedback above, not a
+                  confidence line. */}
+              {!result.verificationUnavailable && !codeFailed && (
                 <p className="text-sm text-gray-500 mb-6">
                   {result.verified
                     ? `The AI thinks this may be complete, but is only ${Math.floor(result.confidence * 100)}% confident — 85%+ is needed for automatic approval.`
@@ -230,19 +392,19 @@ function VerifyContent() {
             </>
           )}
 
-          {result.saved === false && result.verified && result.confidence >= 0.85 && (
+          {result.saved === false && result.approved && (
             <p className="text-sm text-red-600 mb-6">
               Your project was verified but was not saved to History{result.saveError ? `: ${result.saveError}` : '.'} The database needs a one-time fix before verified projects can save, so please submit again after that fix.
             </p>
           )}
 
-          {!(result.verified && result.confidence >= 0.85) && (
+          {!result.approved && (
             <div className="space-y-2 mb-4">
               <button
                 onClick={handleRetry}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
               >
-                Retry with a new photo
+                Retry with a new code
               </button>
               <button
                 onClick={handleChooseAgain}
@@ -313,9 +475,50 @@ function VerifyContent() {
           </div>
         )}
 
-        {/* Photo Upload */}
+        {/* Challenge code: points need a photo taken with the camera
+            showing this code on paper beside the project. */}
+        {challengeLoading ? (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 text-center">
+            <div className="animate-spin w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full mx-auto"></div>
+            <p className="text-sm text-gray-500 mt-3">Getting your verification code…</p>
+          </div>
+        ) : challenge ? (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 text-center">
+            <p className="text-sm text-gray-600 mb-2">Your verification code — write it on paper and place it next to your finished project:</p>
+            <p className="text-5xl font-mono font-bold tracking-[0.3em] text-gray-900 mb-2">{challenge.code}</p>
+            <p className="text-xs text-gray-500 mb-4">Good for 15 minutes. Each retry gets a fresh code.</p>
+            <button
+              onClick={fetchChallenge}
+              disabled={challengeLoading}
+              className="text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50"
+            >
+              Get a new code
+            </button>
+          </div>
+        ) : challengeError ? (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
+            <p className="text-sm text-red-600">{challengeError}</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="mt-3 w-full bg-white border-2 border-gray-200 hover:border-green-400 text-gray-700 font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+            >
+              View Dashboard
+            </button>
+          </div>
+        ) : null}
+
+        {/* Photo capture */}
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-          {previewImage ? (
+          {cameraOpen ? (
+            <CameraCapture
+              onCapture={handleCameraCapture}
+              onCancel={() => setCameraOpen(false)}
+              onNoCamera={(message) => {
+                setCameraOpen(false);
+                setError(message);
+              }}
+            />
+          ) : previewImage ? (
             <>
               <img
                 src={previewImage}
@@ -336,18 +539,21 @@ function VerifyContent() {
                       </svg>
                       Verifying...
                     </span>
+                  ) : captureMode === 'points' ? (
+                    'Submit for Points'
                   ) : (
-                    'Submit for Verification'
+                    'Check if It Matches'
                   )}
                 </button>
                 <button
                   onClick={() => {
                     setPreviewImage(null);
                     setSelectedFile(null);
+                    setCaptureMode(null);
                   }}
                   className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 px-4 rounded-xl transition-colors"
                 >
-                  Take Different Photo
+                  Take a Different Photo
                 </button>
               </div>
             </>
@@ -359,21 +565,27 @@ function VerifyContent() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-900 mb-2">Upload Completion Photo</h3>
+              <h3 className="font-semibold text-gray-900 mb-2">Show Your Finished Project</h3>
               <p className="text-gray-600 text-sm mb-6">
-                Take a clear photo showing your completed DIY project
+                Take a clear photo with the camera — with your code on paper beside the project — to earn points. Or upload a gallery photo to check the match for feedback only.
               </p>
               <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                onClick={() => setCameraOpen(true)}
+                disabled={!challenge}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50 mb-3"
               >
-                Choose Photo
+                Take a Photo with the Camera
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full bg-white border-2 border-gray-200 hover:border-green-400 text-gray-700 font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+              >
+                Upload from Gallery (Feedback Only)
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -411,10 +623,11 @@ function VerifyContent() {
         <div className="mt-6 bg-blue-50 rounded-xl p-4">
           <h4 className="font-semibold text-blue-900 mb-2">Tips for verification:</h4>
           <ul className="text-sm text-blue-800 space-y-1">
+            <li>• Write the code on paper and place it next to your project</li>
             <li>• Show the entire completed project</li>
             <li>• Ensure good lighting</li>
             <li>• Include the original packaging if visible</li>
-            <li>• Make sure the project is clearly visible</li>
+            <li>• Make sure the project — and the code — are clearly visible</li>
           </ul>
         </div>
       </main>
