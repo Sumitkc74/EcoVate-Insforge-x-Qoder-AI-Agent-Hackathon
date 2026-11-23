@@ -20,10 +20,12 @@ import { serverStorage } from '@/lib/insforge';
 import { assertServiceKey, handleRouteError } from '@/lib/server-auth';
 import { verifyImageSignature } from '@/lib/storage';
 
-// Keys are exactly <prefix>/<user uuid>/<file uuid>.<ext> —
-// uploadImage is the only writer. Anything else is rejected
+// Keys are <prefix>/<user uuid>/<file>.<ext> — uploadImage is
+// the only writer and names new files with a uuid, but the March
+// 2026 files were named with a millisecond timestamp instead, so
+// the filename is a uuid or 10+ digits. Anything else is rejected
 // before it can touch storage (no traversal, no other prefixes).
-const KEY_PATTERN = /^(avatars|scans|verifications)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$/;
+const KEY_PATTERN = /^(avatars|scans|verifications)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{10,})\.(jpg|png|webp)$/;
 
 export async function GET(request: NextRequest) {
   try {
