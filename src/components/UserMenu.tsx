@@ -4,9 +4,9 @@
  * the account details, an edit-profile form (the leaderboard name
  * and photo — neither has to come from Google), Sign in with Google
  * for guests, Delete account for Google users (guests are deleted
- * when they sign out), and Sign out. Guests confirm sign-out first:
- * it deletes the guest account and everything in it. Google users
- * sign out with no warning — their account stays.
+ * when they sign out), and Sign out. Guests get a popup warning
+ * first: signing out deletes the guest account and everything in
+ * it. Google users sign out with no warning — their account stays.
  */
 
 'use client';
@@ -331,23 +331,35 @@ export default function UserMenu({
               </button>
             )}
             {isGuest && confirmingSignOut && (
-              <div className="px-4 py-3 space-y-3 border-t border-gray-100">
-                <p className="text-sm text-gray-700">
-                  Are you sure? Signing out deletes your guest account — your scans, completed projects, points and photos. You can&apos;t get them back. Sign in with Google first if you want to keep them.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleSignOut}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors"
-                  >
-                    Yes, sign out and delete
-                  </button>
-                  <button
-                    onClick={() => setConfirmingSignOut(false)}
-                    className="flex-1 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-3 rounded-xl transition-colors"
-                  >
-                    Cancel
-                  </button>
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                onClick={() => setConfirmingSignOut(false)}
+              >
+                <div
+                  className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-4"
+                  onClick={(e) => e.stopPropagation()}
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-label="Sign out and delete guest account?"
+                >
+                  <p className="text-base font-semibold text-gray-900">Are you sure you want to sign out?</p>
+                  <p className="text-sm text-gray-700">
+                    Signing out deletes your guest account — your scans, completed projects, points and photos. You can&apos;t get them back. Sign in with Google first if you want to keep them.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSignOut}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors"
+                    >
+                      Yes, sign out and delete
+                    </button>
+                    <button
+                      onClick={() => setConfirmingSignOut(false)}
+                      className="flex-1 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-3 rounded-xl transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
