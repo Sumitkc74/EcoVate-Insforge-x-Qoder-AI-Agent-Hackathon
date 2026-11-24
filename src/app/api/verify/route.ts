@@ -22,6 +22,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverDb, serverStorage } from '@/lib/insforge';
 import { verifyChallengeWithGroq, verifyMatchWithGroq, ChallengeVerdict } from '@/lib/groq-vision';
+import { matchAsk } from '@/lib/verify-prompts';
 import { uploadImage, storageKeyFromUrl } from '@/lib/storage';
 import {
   assertServiceKey,
@@ -497,10 +498,9 @@ async function runChallengeCheck(
       // The model judges the finished project against the original
       // scan photo too, when it could be downloaded: a generated
       // image almost never reproduces the exact item from the scan.
-      const scanMatchAsk = scanPhoto
-        ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
-        : '';
-      const verifyPrompt = `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". First, does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Second, there should be a short code handwritten on a piece of paper in the photo, next to the project. Read exactly what the code says and report it character for character. Do not guess: if the code is missing, blurry or unreadable, say so. Respond ONLY with a JSON object: {"projectMatch": true or false, "projectMatchConfidence": number between 0 and 1, "codeSeen": "the code exactly as you read it, or null if it cannot be read", "codeVisible": true or false, "feedback": "brief explanation"}.`;
+      // The match question is the shared one (see verify-prompts.ts)
+      // so the points and feedback-only verdicts cannot drift apart.
+      const verifyPrompt = `You are evaluating a DIY upcycling project verification photo. ${matchAsk(packagingType, projectTitle, scanPhoto)} Second, there should be a short code handwritten on a piece of paper in the photo, next to the project. Read exactly what the code says and report it character for character. Do not guess: if the code is missing, blurry or unreadable, say so. Respond ONLY with a JSON object: {"projectMatch": true or false, "projectMatchConfidence": number between 0 and 1, "codeSeen": "the code exactly as you read it, or null if it cannot be read", "codeVisible": true or false, "feedback": "brief explanation"}.`;
       const scanMimeMatch = scanPhoto?.match(/^data:([^;]+);base64,/);
       const verifyParts = [
         { text: verifyPrompt },
@@ -516,6 +516,10 @@ async function runChallengeCheck(
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
           signal: AbortSignal.timeout(25000),
           body: JSON.stringify({
+            // Temperature 0: the same evidence should give the same
+            // verdict — the points and feedback-only paths must not
+            // disagree by sampling luck.
+            generationConfig: { temperature: 0 },
             contents: [{
               parts: verifyParts,
             }],
@@ -552,10 +556,7 @@ async function runMatchCheck(
       const mimeMatch = base64Image.match(/^data:([^;]+);base64,/);
       const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
       const rawBase64 = base64Image.replace(/^data:[^;]+;base64,/, '');
-      const scanMatchAsk = scanPhoto
-        ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
-        : '';
-      const matchPrompt = `You are evaluating a DIY upcycling project photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`;
+      const matchPrompt = `You are evaluating a DIY upcycling project photo. ${matchAsk(packagingType, projectTitle, scanPhoto)} Respond ONLY with a JSON object: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`;
       const scanMimeMatch = scanPhoto?.match(/^data:([^;]+);base64,/);
       const matchParts = [
         { text: matchPrompt },
@@ -571,6 +572,8 @@ async function runMatchCheck(
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
           signal: AbortSignal.timeout(25000),
           body: JSON.stringify({
+            // Temperature 0, as in the points path above.
+            generationConfig: { temperature: 0 },
             contents: [{
               parts: matchParts,
             }],

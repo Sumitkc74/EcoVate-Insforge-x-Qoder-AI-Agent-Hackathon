@@ -67,6 +67,11 @@ export default function HistoryPage() {
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null);
+  // A failed history load used to show nothing at all — the page
+  // looked empty with the failure only in the console. Keep the
+  // message so the page can show it (full screen on first load, a
+  // banner when more data fails to load under existing rows).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHistory();
@@ -86,6 +91,7 @@ export default function HistoryPage() {
         router.push('/login');
         return;
       }
+      setLoadError(null);
       const result = await loadHistoryPage(0, 0);
       setData({
         scans: result.scans || [],
@@ -103,6 +109,7 @@ export default function HistoryPage() {
       });
     } catch (e) {
       console.error('Failed to fetch history:', e);
+      setLoadError((e as Error).message);
     } finally {
       setIsLoading(false);
     }
@@ -118,6 +125,7 @@ export default function HistoryPage() {
       setHasMoreScans(Boolean(result.hasMoreScans));
     } catch (e) {
       console.error('Failed to load more scans:', e);
+      setLoadError((e as Error).message);
     } finally {
       setIsLoadingMore(null);
     }
@@ -133,6 +141,7 @@ export default function HistoryPage() {
       setHasMoreActions(Boolean(result.hasMoreActions));
     } catch (e) {
       console.error('Failed to load more actions:', e);
+      setLoadError((e as Error).message);
     } finally {
       setIsLoadingMore(null);
     }
@@ -222,6 +231,32 @@ export default function HistoryPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100">
         <div className="animate-spin w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full"></div>
+      </div>
+    );
+  }
+
+  // First load failed and there is nothing to show: say so and offer
+  // a retry, instead of the empty "No projects yet" state that used
+  // to hide the failure.
+  if (loadError && !data) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 text-center">
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Couldn&apos;t load your history</h1>
+          <p className="text-gray-600 mb-6">{loadError}</p>
+          <button
+            onClick={fetchHistory}
+            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+          >
+            Try again
+          </button>
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="mt-3 w-full bg-white border-2 border-gray-200 hover:border-green-400 text-gray-700 font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+          >
+            Back to Dashboard
+          </button>
+        </div>
       </div>
     );
   }
@@ -356,6 +391,17 @@ export default function HistoryPage() {
         {deleteError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm text-red-600">Could not delete: {deleteError}</p>
+          </div>
+        )}
+        {loadError && data && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">Could not load more history: {loadError}</p>
+            <button
+              onClick={fetchHistory}
+              className="mt-2 text-sm font-semibold text-red-600 underline"
+            >
+              Reload history
+            </button>
           </div>
         )}
         {diyError && (

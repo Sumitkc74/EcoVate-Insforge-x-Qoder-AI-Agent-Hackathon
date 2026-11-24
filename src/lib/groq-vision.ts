@@ -8,6 +8,8 @@
  * Default: the model Groq's own vision docs list as of Nov 2026.
  */
 
+import { matchAsk } from './verify-prompts';
+
 const GROQ_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b';
 
 async function callGroqVision(prompt: string, imageDataUrl: string, timeoutMs = 25000, temperature = 0.2, secondImageDataUrl?: string): Promise<Record<string, unknown> | null> {
@@ -229,14 +231,13 @@ export async function verifyChallengeWithGroq(
   projectTitle: string,
   scanImageDataUrl?: string | null,
 ): Promise<ChallengeVerdict | null> {
-  const scanMatchAsk = scanImageDataUrl
-    ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
-    : '';
+  // The match question is the shared one (see verify-prompts.ts);
+  // temperature 0 so the same evidence gives the same verdict.
   const parsed = await callGroqVision(
-    `You are evaluating a DIY upcycling project verification photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". First, does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Second, there should be a short code handwritten on a piece of paper in the photo, next to the project. Read exactly what the code says and report it character for character. Do not guess: if the code is missing, blurry or unreadable, say so. Reply with a JSON object only: {"projectMatch": true or false, "projectMatchConfidence": number between 0 and 1, "codeSeen": the code exactly as you read it, or null if it cannot be read, "codeVisible": true or false, "feedback": "brief explanation"}.`,
+    `You are evaluating a DIY upcycling project verification photo. ${matchAsk(packagingType, projectTitle, scanImageDataUrl ?? null)} Second, there should be a short code handwritten on a piece of paper in the photo, next to the project. Read exactly what the code says and report it character for character. Do not guess: if the code is missing, blurry or unreadable, say so. Reply with a JSON object only: {"projectMatch": true or false, "projectMatchConfidence": number between 0 and 1, "codeSeen": the code exactly as you read it, or null if it cannot be read, "codeVisible": true or false, "feedback": "brief explanation"}.`,
     imageDataUrl,
     25000,
-    0.2,
+    0,
     scanImageDataUrl ?? undefined,
   );
   if (!parsed) return null;
@@ -259,14 +260,12 @@ export async function verifyMatchWithGroq(
   projectTitle: string,
   scanImageDataUrl?: string | null,
 ): Promise<{ verified: boolean; confidence: number; feedback: string } | null> {
-  const scanMatchAsk = scanImageDataUrl
-    ? ` The second image is the original scan of the packaging this project was made from. The finished project must plausibly come from that exact item — same container, same label and markings.`
-    : '';
+  // Same shared match question and temperature 0 as the points path.
   const parsed = await callGroqVision(
-    `You are evaluating a DIY upcycling project photo. Expected project: a DIY project made from a "${packagingType}", titled "${projectTitle}". Does this image show that completed DIY project made from that packaging? Be fair but accurate.${scanMatchAsk} Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`,
+    `You are evaluating a DIY upcycling project photo. ${matchAsk(packagingType, projectTitle, scanImageDataUrl ?? null)} Reply with a JSON object only: {"verified": true or false, "confidence": number between 0 and 1, "feedback": "brief explanation"}.`,
     imageDataUrl,
     25000,
-    0.2,
+    0,
     scanImageDataUrl ?? undefined,
   );
   if (!parsed) return null;
