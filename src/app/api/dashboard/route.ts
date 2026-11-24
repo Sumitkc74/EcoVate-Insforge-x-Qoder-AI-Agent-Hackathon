@@ -12,6 +12,7 @@ import {
   requireUser,
   guestPoolUsed,
   guestPersonalUsage,
+  signedInVerifyUsage,
   GUEST_DAILY_POOL,
   unauthorizedResponse,
   handleRouteError,
@@ -171,8 +172,12 @@ async function dashboardResponse(user: { id: string; isAnonymous: boolean }) {
   // 0/2) — never the shared pool count, which other guests' activity
   // would move. When the shared pool is done, the card says the
   // guest logins are exhausted for the day instead of showing a
-  // number.
-  if (!user.isAnonymous) return NextResponse.json(data);
+  // number. Signed-in users get their verification use too (30/day),
+  // so the verify page can show what is left before submitting.
+  if (!user.isAnonymous) {
+    const verifyUsage = await signedInVerifyUsage(user.id);
+    return NextResponse.json({ ...data, verifyUsage });
+  }
   const [usage, poolUsed] = await Promise.all([
     guestPersonalUsage(user.id),
     guestPoolUsed(),

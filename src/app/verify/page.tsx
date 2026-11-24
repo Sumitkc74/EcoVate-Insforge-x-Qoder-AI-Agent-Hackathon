@@ -67,6 +67,16 @@ function VerifyContent() {
   // Which path the chosen photo will take: camera capture earns
   // points, a gallery upload is feedback only.
   const [captureMode, setCaptureMode] = useState<'points' | 'feedback' | null>(null);
+  // Verifications left today, from /api/dashboard: guests get their
+  // own 2/day count, signed-in users their 30/day count. Null until
+  // loaded (or when the fetch fails — the line is then hidden rather
+  // than showing a wrong number; the server still enforces the cap).
+  const [verifyUsage, setVerifyUsage] = useState<{
+    remaining: number;
+    cap: number;
+    isGuest: boolean;
+    poolExhausted: boolean;
+  } | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [result, setResult] = useState<{
@@ -83,6 +93,31 @@ function VerifyContent() {
     saveError?: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const response = await authedFetch('/api/dashboard');
+      const data = await readApiJson(response);
+      if (!response.ok) return;
+      if (data.guestUsage) {
+        // Guests: their own count only, never the shared pool number.
+        // When the pool is done the count is effectively 0 even if
+        // this guest has attempts left — the server refuses those too.
+        const poolExhausted = data.guestPoolExhausted === true;
+        const remaining = poolExhausted ? 0 : Math.max(0, 2 - (data.guestUsage.verifications || 0));
+        setVerifyUsage({ remaining, cap: 2, isGuest: true, poolExhausted });
+      } else if (data.verifyUsage) {
+        setVerifyUsage({
+          remaining: Math.max(0, data.verifyUsage.cap - data.verifyUsage.used),
+          cap: data.verifyUsage.cap,
+          isGuest: false,
+          poolExhausted: false,
+        });
+      }
+    } catch {
+      // Leave the line hidden on failure (see the state comment).
+    }
+  }, []);
 
   const fetchChallenge = useCallback(async () => {
     if (!scanId) return false;
@@ -126,7 +161,9 @@ function VerifyContent() {
         });
       }
     }).catch(() => {});
-  }, [searchParams]);
+    // Verifications left today, shown above the capture buttons.
+    fetchUsage();
+  }, [searchParams, fetchUsage]);
 
   // A fresh code per attempt: fetched when the page loads for this
   // scan, and again on every retry.
@@ -159,7 +196,21 @@ function VerifyContent() {
     setCaptureMode(null);
     setError(null);
     await fetchChallenge();
+    await fetchUsage();
   };
+
+  // The line shown above the capture buttons and on the result
+  // screens: what is left before this submit, so the user is never
+  // surprised by the cap afterwards.
+  const usageLine = verifyUsage
+    ? verifyUsage.poolExhausted
+      ? 'Guest verifications are exhausted for the day. Sign in with Google to continue.'
+      : verifyUsage.remaining === 0
+        ? verifyUsage.isGuest
+          ? "You've used both of today's verifications. Sign in with Google for 30 a day."
+          : "You've used all 30 of today's verifications. Try again tomorrow."
+        : `You have ${verifyUsage.remaining} of ${verifyUsage.cap} verification${verifyUsage.remaining === 1 ? '' : 's'} left today.`
+    : null;
 
   // The photo is downscaled to 1024px on the longest side first
   // (same as the scan page): a full-resolution phone photo is
@@ -245,8 +296,15 @@ function VerifyContent() {
 
       setResult(data);
       setIsComplete(true);
+      // A points submit spent an attempt — refresh the count so the
+      // result screen shows what is actually left now. A feedback
+      // check spent nothing, so the number is unchanged.
+      await fetchUsage();
     } catch (err) {
       setError((err as Error).message);
+      // The cap claim runs before the AI work, so a failed submit
+      // may still have spent the attempt — refresh the count.
+      await fetchUsage();
     } finally {
       setIsVerifying(false);
     }
@@ -281,6 +339,9 @@ function VerifyContent() {
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-6">
               This was a feedback check only — no points were awarded. To earn points, take a photo with the camera showing your verification code.
             </p>
+            {usageLine && (
+              <p className="text-sm text-gray-500 mb-6">{usageLine}</p>
+            )}
             <div className="space-y-2 mb-4">
               <button
                 onClick={handleRetry}
@@ -418,6 +479,9 @@ function VerifyContent() {
           {error && (
             <p className="text-sm text-red-600 mb-4">{error}</p>
           )}
+          {usageLine && (
+            <p className="text-sm text-gray-500 mb-4">{usageLine}</p>
+          )}
 
           <button
             onClick={() => router.push('/dashboard')}
@@ -468,6 +532,14 @@ function VerifyContent() {
           <h2 className="font-semibold text-gray-900 mb-1">{projectTitle}</h2>
           <p className="text-sm text-gray-500">Estimated CO2 savings: {estimatedCo2Saved} kg</p>
         </div>
+
+        {/* What is left before this submit — a camera photo for
+            points spends one, a gallery check spends none. */}
+        {usageLine && (
+          <p className={`text-sm text-center mb-6 ${verifyUsage?.remaining === 0 ? 'text-amber-700 font-medium' : 'text-gray-600'}`}>
+            {usageLine}
+          </p>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -571,7 +643,7 @@ function VerifyContent() {
               </p>
               <button
                 onClick={() => setCameraOpen(true)}
-                disabled={!challenge}
+                disabled={!challenge || verifyUsage?.remaining === 0}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50 mb-3"
               >
                 Take a Photo with the Camera
@@ -582,6 +654,9 @@ function VerifyContent() {
               >
                 Upload from Gallery (Feedback Only)
               </button>
+              <p className="text-xs text-gray-500 mt-3">
+                A camera photo for points uses 1 of your daily verifications. Gallery checks are free.
+              </p>
               <input
                 ref={fileInputRef}
                 type="file"

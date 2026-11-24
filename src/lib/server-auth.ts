@@ -290,6 +290,41 @@ export async function guestPersonalUsage(
   }
 }
 
+// Verifications used today by a signed-in user, for display only:
+// the verify route enforces the 30/day cap, this just shows it, so
+// it counts exactly what the route counts (usage_attempts rows of
+// kind 'verify', falling back to surviving diy_* rows when the table
+// does not exist yet). On any other counting failure it reports the
+// cap as used: the route refuses attempts when it cannot count, so
+// the page must not promise one. Guests do not use this — the
+// dashboard already returns their guestUsage numbers.
+export async function signedInVerifyUsage(
+  userId: string,
+): Promise<{ used: number; cap: number }> {
+  const cap = 30;
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const attempts = await countAttempts(userId, 'verify', cap);
+  if (typeof attempts === 'number') return { used: Math.min(attempts, cap), cap };
+  if (attempts === 'error') return { used: cap, cap };
+  // Table missing: fall back to surviving rows, the old behavior.
+  try {
+    const { data } = await serverDb
+      .from('user_actions')
+      .select('id, created_at')
+      .eq('user_id', userId)
+      .in('action_type', ['diy_completed', 'diy_pending', 'diy_failed'])
+      .order('created_at', { ascending: false })
+      .limit(cap + 1);
+    const used = Math.min(
+      ((data || []) as { created_at: string }[]).filter((r) => r.created_at >= since).length,
+      cap,
+    );
+    return { used, cap };
+  } catch {
+    return { used: cap, cap };
+  }
+}
+
 // Daily cap on AI-costly endpoints, counted from tables that already
 // exist — no new infrastructure. Returns true when this user already
 // has `cap` rows in the last 24 hours, i.e. the next one would be
