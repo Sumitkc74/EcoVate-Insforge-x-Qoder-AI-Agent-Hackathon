@@ -4,7 +4,9 @@
  * the account details, an edit-profile form (the leaderboard name
  * and photo — neither has to come from Google), Sign in with Google
  * for guests, Delete account for Google users (guests are deleted
- * when they sign out), and Sign out. Renders nothing when signed out.
+ * when they sign out), and Sign out. Guests confirm sign-out first:
+ * it deletes the guest account and everything in it. Google users
+ * sign out with no warning — their account stays.
  */
 
 'use client';
@@ -50,6 +52,8 @@ export default function UserMenu({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Guests confirm sign-out first: it deletes the guest account.
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   // Values saved in this menu, until the parent re-renders with them.
   const [nameOverride, setNameOverride] = useState<string | null>(null);
   const [avatarOverride, setAvatarOverride] = useState<string | null | undefined>(undefined);
@@ -315,15 +319,49 @@ export default function UserMenu({
               </button>
             )}
             {signInError && <p className="px-4 py-1 text-sm text-red-600">{signInError}</p>}
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              <span>Sign out</span>
-            </button>
+            {isGuest && !confirmingSignOut && (
+              <button
+                onClick={() => setConfirmingSignOut(true)}
+                className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>Sign out</span>
+              </button>
+            )}
+            {isGuest && confirmingSignOut && (
+              <div className="px-4 py-3 space-y-3 border-t border-gray-100">
+                <p className="text-sm text-gray-700">
+                  Are you sure? Signing out deletes your guest account — your scans, completed projects, points and photos. You can&apos;t get them back. Sign in with Google first if you want to keep them.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSignOut}
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors"
+                  >
+                    Yes, sign out and delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmingSignOut(false)}
+                    className="flex-1 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-3 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {!isGuest && (
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>Sign out</span>
+              </button>
+            )}
             {!isGuest && !confirmingDelete && (
               <button
                 onClick={() => {
