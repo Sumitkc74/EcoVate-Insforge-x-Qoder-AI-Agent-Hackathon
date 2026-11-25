@@ -16,6 +16,7 @@ import { useRouter } from 'next/navigation';
 import { signOutAll, authedFetch, readApiJson, updateAnonSessionName } from '@/lib/client-auth';
 import { signInWithGoogle } from '@/lib/auth';
 import { downscaleImageFile } from '@/lib/image-resize';
+import ConfirmModal from '@/components/ConfirmModal';
 
 export interface MenuUser {
   name: string | null;
@@ -374,7 +375,7 @@ export default function UserMenu({
                 <span>Sign out</span>
               </button>
             )}
-            {!isGuest && !confirmingDelete && (
+            {!isGuest && (
               <button
                 onClick={() => {
                   setConfirmingDelete(true);
@@ -388,34 +389,24 @@ export default function UserMenu({
                 <span>Delete account</span>
               </button>
             )}
-            {!isGuest && confirmingDelete && (
-              <div className="px-4 py-3 space-y-3 border-t border-gray-100">
-                <p className="text-sm text-gray-700">
-                  This permanently deletes your EcoVate data — your scans, completed projects, points and photos. You can sign in again later, but you will start fresh.
-                </p>
-                {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleDeleteAccount}
-                    disabled={isDeleting}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    {isDeleting ? 'Deleting…' : 'Yes, delete my account'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setConfirmingDelete(false);
-                      setDeleteError(null);
-                    }}
-                    className="flex-1 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium py-2 px-3 rounded-xl transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </>
+      )}
+      {confirmingDelete && (
+        <ConfirmModal
+          title="Are you sure you want to delete?"
+          lines={[
+            'This permanently deletes your EcoVate data — your scans, completed projects, points and photos. You can sign in again later, but you will start fresh.',
+            ...(deleteError ? [`Could not delete: ${deleteError}`] : []),
+          ]}
+          confirmLabel="Yes, delete my account"
+          busy={isDeleting}
+          onConfirm={handleDeleteAccount}
+          onCancel={() => {
+            setConfirmingDelete(false);
+            setDeleteError(null);
+          }}
+        />
       )}
     </div>
   );

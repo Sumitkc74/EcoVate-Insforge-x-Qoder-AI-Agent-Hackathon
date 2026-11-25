@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { getScanDiyState, buildVerifyUrl, openAddDiy } from '@/lib/diy-continue';
+import ConfirmModal from '@/components/ConfirmModal';
 
 interface Scan {
   id: string;
@@ -59,14 +60,23 @@ export default function HistoryPage() {
   const [totals, setTotals] = useState({ totalScans: 0, totalProjects: 0, totalPending: 0 });
   const [isLoadingMore, setIsLoadingMore] = useState<'scans' | 'actions' | null>(null);
   const [activeTab, setActiveTab] = useState<'scans' | 'projects' | 'pending'>('projects');
-  const [confirmDelete, setConfirmDelete] = useState<{ type: 'scan' | 'project'; id: string } | null>(null);
+  // Every delete on this page asks first, in one shared popup — a
+  // single scan, a single project, delete-all, or ending a pending
+  // verification. The popup's detail lines come from the row, so
+  // the user sees what else goes away (linked project, points)
+  // before anything is deleted.
+  type PendingDelete =
+    | { kind: 'scan'; id: string }
+    | { kind: 'project'; id: string }
+    | { kind: 'all-scans' }
+    | { kind: 'all-projects' }
+    | { kind: 'end-pending'; id: string };
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState<'scans' | 'projects' | null>(null);
   const [deletingAll, setDeletingAll] = useState<'scans' | 'projects' | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
-  const [confirmEndId, setConfirmEndId] = useState<string | null>(null);
   // A failed history load used to show nothing at all — the page
   // looked empty with the failure only in the console. Keep the
   // message so the page can show it (full screen on first load, a
@@ -165,7 +175,7 @@ export default function HistoryPage() {
       if (!response.ok) {
         throw new Error(result.error || 'Delete failed');
       }
-      setConfirmDelete(null);
+      setPendingDelete(null);
       await fetchHistory();
     } catch (e) {
       setDeleteError((e as Error).message);
@@ -194,7 +204,7 @@ export default function HistoryPage() {
   // scan falls back to its chosen DIY (Incomplete) and can be
   // retried or re-chosen from there.
   const handleEndPending = async (id: string) => {
-    setConfirmEndId(null);
+    setPendingDelete(null);
     await handleDelete('project', id);
   };
 
@@ -218,7 +228,7 @@ export default function HistoryPage() {
       if (!response.ok) {
         throw new Error(result.error || 'Delete failed');
       }
-      setConfirmDeleteAll(null);
+      setPendingDelete(null);
       await fetchHistory();
     } catch (e) {
       setDeleteError((e as Error).message);
@@ -293,8 +303,95 @@ export default function HistoryPage() {
     }
   }
 
+  // What the delete popup says, built from the row it was opened
+  // on: the scan's linked DIY project and points, the project's
+  // points, or the all-scans / all-projects totals. Nothing is
+  // deleted from the popup's Cancel — only its Yes button runs.
+  const deleteModal = (() => {
+    if (!pendingDelete) return null;
+    const scanName = (id: string) =>
+      (data?.scans || []).find((s) => s.id === id)?.product_name || 'this scan';
+    switch (pendingDelete.kind) {
+      case 'scan': {
+        const diy = scanDiy(pendingDelete.id);
+        const pts = pointsByScan.get(pendingDelete.id) || 0;
+        return {
+          lines: [
+            `Delete "${scanName(pendingDelete.id)}"?`,
+            ...(diy && diy.status !== 'none'
+              ? ['This also deletes the linked DIY project.']
+              : []),
+            ...(pts > 0 ? [`This removes ${pts} pts.`] : []),
+            "This can't be undone.",
+          ],
+          confirmLabel: 'Yes, delete',
+          busy: deletingId === pendingDelete.id,
+          onConfirm: () => handleDelete('scan', pendingDelete.id),
+        };
+      }
+      case 'project': {
+        const action = (data?.actions || []).find((a) => a.id === pendingDelete.id);
+        return {
+          lines: [
+            `Delete "${action?.project_title || 'this project'}"?`,
+            ...(action && action.impact_score > 0
+              ? [`This project earned +${action.impact_score} pts. Deleting removes them.`]
+              : []),
+            "This can't be undone.",
+          ],
+          confirmLabel: 'Yes, delete',
+          busy: deletingId === pendingDelete.id,
+          onConfirm: () => handleDelete('project', pendingDelete.id),
+        };
+      }
+      case 'all-scans':
+        return {
+          lines: [
+            `Delete all ${data?.scans.length || 0} scans?`,
+            'This also deletes their linked DIY projects.',
+            ...((data?.totalImpact || 0) > 0 ? [`This removes ${data?.totalImpact} pts.`] : []),
+            "This can't be undone.",
+          ],
+          confirmLabel: 'Yes, delete all',
+          busy: deletingAll === 'scans',
+          onConfirm: () => handleDeleteAll('scans'),
+        };
+      case 'all-projects':
+        return {
+          lines: [
+            `Delete all ${allProjects.length} projects?`,
+            ...(projectPoints > 0 ? [`This removes ${projectPoints} pts.`] : []),
+            "This can't be undone.",
+          ],
+          confirmLabel: 'Yes, delete all',
+          busy: deletingAll === 'projects',
+          onConfirm: () => handleDeleteAll('projects'),
+        };
+      case 'end-pending':
+        return {
+          lines: [
+            'End this pending verification?',
+            'The scan falls back to its chosen DIY and can be retried.',
+          ],
+          confirmLabel: 'Yes, end it',
+          busy: deletingId === pendingDelete.id,
+          onConfirm: () => handleEndPending(pendingDelete.id),
+        };
+    }
+  })();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 pb-6">
+      {deleteModal && (
+        <ConfirmModal
+          title="Are you sure you want to delete?"
+          lines={deleteModal.lines}
+          confirmLabel={deleteModal.confirmLabel}
+          busy={deleteModal.busy}
+          onConfirm={deleteModal.onConfirm}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
@@ -413,32 +510,13 @@ export default function HistoryPage() {
           <div className="space-y-3">
             {(data?.scans.length || 0) > 0 && (
               <div className="flex justify-end">
-                {confirmDeleteAll === 'scans' ? (
-                  <span className="flex items-center space-x-2 text-xs">
-                    <span className="text-gray-600">Delete all {data?.scans.length} scans? This can&apos;t be undone.{(data?.totalImpact || 0) > 0 ? ` This removes ${data?.totalImpact} pts.` : ''}</span>
-                    <button
-                      onClick={() => handleDeleteAll('scans')}
-                      disabled={deletingAll === 'scans'}
-                      className="text-red-600 font-semibold disabled:opacity-50"
-                    >
-                      {deletingAll === 'scans' ? 'Deleting…' : 'Confirm delete all'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteAll(null)}
-                      className="text-gray-500"
-                    >
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteAll('scans')}
-                    className="text-xs text-red-500 hover:text-red-700"
-                    title="Delete all scans"
-                  >
-                    Delete all
-                  </button>
-                )}
+                <button
+                  onClick={() => setPendingDelete({ kind: 'all-scans' })}
+                  className="text-xs text-red-500 hover:text-red-700"
+                  title="Delete all scans"
+                >
+                  Delete all
+                </button>
               </div>
             )}
             {data?.scans.length === 0 ? (
@@ -563,34 +641,13 @@ export default function HistoryPage() {
                       <span className="text-xs text-gray-400">
                         {new Date(scan.created_at).toLocaleDateString()}
                       </span>
-                      {confirmDelete?.type === 'scan' && confirmDelete.id === scan.id ? (
-                        <span className="flex items-center space-x-2 text-xs">
-                          {(pointsByScan.get(scan.id) || 0) > 0 && (
-                            <span className="text-amber-600">Removes {pointsByScan.get(scan.id)} pts.</span>
-                          )}
-                          <button
-                            onClick={() => handleDelete('scan', scan.id)}
-                            disabled={deletingId === scan.id}
-                            className="text-red-600 font-semibold disabled:opacity-50"
-                          >
-                            {deletingId === scan.id ? 'Deleting…' : 'Confirm delete'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            className="text-gray-500"
-                          >
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDelete({ type: 'scan', id: scan.id })}
-                          className="text-xs text-red-500 hover:text-red-700"
-                          title="Delete this scan"
-                        >
-                          Delete
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setPendingDelete({ kind: 'scan', id: scan.id })}
+                        className="text-xs text-red-500 hover:text-red-700"
+                        title="Delete this scan"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -613,32 +670,13 @@ export default function HistoryPage() {
           <div className="space-y-3">
             {allProjects.length > 0 && (
               <div className="flex justify-end">
-                {confirmDeleteAll === 'projects' ? (
-                  <span className="flex items-center space-x-2 text-xs">
-                    <span className="text-gray-600">Delete all {allProjects.length} projects? This can&apos;t be undone.{projectPoints > 0 ? ` This removes ${projectPoints} pts.` : ''}</span>
-                    <button
-                      onClick={() => handleDeleteAll('projects')}
-                      disabled={deletingAll === 'projects'}
-                      className="text-red-600 font-semibold disabled:opacity-50"
-                    >
-                      {deletingAll === 'projects' ? 'Deleting…' : 'Confirm delete all'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteAll(null)}
-                      className="text-gray-500"
-                    >
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteAll('projects')}
-                    className="text-xs text-red-500 hover:text-red-700"
-                    title="Delete all projects"
-                  >
-                    Delete all
-                  </button>
-                )}
+                <button
+                  onClick={() => setPendingDelete({ kind: 'all-projects' })}
+                  className="text-xs text-red-500 hover:text-red-700"
+                  title="Delete all projects"
+                >
+                  Delete all
+                </button>
               </div>
             )}
             {allProjects.length === 0 ? (
@@ -782,34 +820,13 @@ export default function HistoryPage() {
                           </button>
                         )}
                       </span>
-                      {confirmDelete?.type === 'project' && confirmDelete.id === action.id ? (
-                        <span className="flex items-center space-x-2 text-xs">
-                          {action.impact_score > 0 && (
-                            <span className="text-amber-600">This project earned +{action.impact_score} pts. Deleting removes them.</span>
-                          )}
-                          <button
-                            onClick={() => handleDelete('project', action.id)}
-                            disabled={deletingId === action.id}
-                            className="text-red-600 font-semibold disabled:opacity-50"
-                          >
-                            {deletingId === action.id ? 'Deleting…' : 'Confirm delete'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            className="text-gray-500"
-                          >
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDelete({ type: 'project', id: action.id })}
-                          className="text-xs text-red-500 hover:text-red-700"
-                          title="Delete this project"
-                        >
-                          Delete
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setPendingDelete({ kind: 'project', id: action.id })}
+                        className="text-xs text-red-500 hover:text-red-700"
+                        title="Delete this project"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 );
@@ -882,30 +899,12 @@ export default function HistoryPage() {
                           {addDiyId === linkedScan.id ? 'Loading…' : 'Choose again'}
                         </button>
                       )}
-                      {confirmEndId === action.id ? (
-                        <span className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleEndPending(action.id)}
-                            disabled={deletingId === action.id}
-                            className="text-red-600 font-semibold disabled:opacity-50"
-                          >
-                            {deletingId === action.id ? 'Ending…' : 'Confirm end it'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmEndId(null)}
-                            className="text-gray-500"
-                          >
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmEndId(action.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          End it
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setPendingDelete({ kind: 'end-pending', id: action.id })}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        End it
+                      </button>
                     </div>
                   </div>
                 );
