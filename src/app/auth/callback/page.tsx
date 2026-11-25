@@ -13,13 +13,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/supabase';
-import { ensureUserProfile } from '@/lib/auth';
+import { ensureUserProfile, signInWithGoogle } from '@/lib/auth';
 import { authedFetch, readAnonSession, clearAnonSession } from '@/lib/client-auth';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
   const [status, setStatus] = useState('Processing authentication...');
   const [error, setError] = useState<string | null>(null);
+  const [showRetry, setShowRetry] = useState(false);
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -44,12 +45,36 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        const { error: exchangeError } = await auth.exchangeCodeForSession(code);
+        // If a session already exists (e.g. this callback URL was
+        // opened twice, or a parallel run already exchanged the code),
+        // skip the exchange — the code is single-use and the verifier
+        // is gone after the first exchange.
+        const { data: { session: existingSession } } = await auth.getSession();
+        if (!existingSession) {
+          const { error: exchangeError } = await auth.exchangeCodeForSession(code);
 
-        if (exchangeError) {
-          setError(`Authentication failed: ${exchangeError.message}`);
-          setTimeout(() => router.push('/login'), 3000);
-          return;
+          if (exchangeError) {
+            // The exchange may have failed while a session still landed
+            // (parallel run); check again before giving up.
+            const { data: { session: retrySession } } = await auth.getSession();
+            if (!retrySession) {
+              if (exchangeError.message.includes('code verifier')) {
+                // The handshake was started in a different browser (or
+                // its storage was cleared) — no verifier to exchange
+                // with. A fresh sign-in sets a new one, so offer that
+                // instead of a dead-end error.
+                setError(
+                  'This sign-in didn\u2019t finish in the same browser, so it couldn\u2019t be completed. Please try again and stay in this browser tab until you\u2019re back on EcoVate.',
+                );
+                setShowRetry(true);
+                return;
+              }
+              setError(`Authentication failed: ${exchangeError.message}`);
+              setTimeout(() => router.push('/login'), 3000);
+              return;
+            }
+            // A session appeared — fall through to the steps below.
+          }
         }
 
         // Get current user after OAuth redirect
@@ -145,7 +170,16 @@ export default function AuthCallbackPage() {
             </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Authentication Failed</h1>
             <p className="text-red-600 mb-4">{error}</p>
-            <p className="text-gray-500 text-sm">Redirecting to login...</p>
+            {showRetry ? (
+              <button
+                onClick={() => signInWithGoogle()}
+                className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700"
+              >
+                Try signing in again
+              </button>
+            ) : (
+              <p className="text-gray-500 text-sm">Redirecting to login...</p>
+            )}
           </>
         ) : (
           <>

@@ -29,9 +29,20 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 // Browser client (cookie-based session, so API routes can read it).
 // Safe to construct on the server too; it only touches cookies when
 // an auth call actually runs.
+//
+// detectSessionInUrl is OFF on purpose: the /auth/callback page
+// exchanges the ?code= itself. With auto-detection on (the default),
+// the client exchanges the single-use code when the page loads, and
+// the page's own exchange then fails with "PKCE code verifier not
+// found in storage" — while the session it just saved sits unused.
+// That double exchange is what broke the first Google sign-in after
+// the Supabase move (Nov 25, 2026).
 export const supabase: SupabaseClient = createBrowserClient(
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
+  {
+    auth: { detectSessionInUrl: false },
+  },
 );
 
 // Normalized user shape, matching what the pages already expect.
