@@ -11,6 +11,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { type ScanResult, type DIYIdea } from '@/lib/supabase';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
+import { retryIcon } from '@/components/action-buttons';
 
 // Loading fallback
 function ResultsLoading() {
@@ -441,9 +442,9 @@ function ResultsContent() {
                     <button
                       onClick={handleRefreshIdeas}
                       disabled={isRefreshingIdeas}
-                      className="w-full text-sm font-medium text-gray-500 hover:text-green-700 py-2 disabled:opacity-50"
+                      className="w-full inline-flex items-center justify-center gap-1 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50"
                     >
-                      {isRefreshingIdeas ? 'Loading different ideas…' : 'Get different ideas'}
+                      {isRefreshingIdeas ? 'Loading different ideas…' : (<>{retryIcon} Get different ideas</>)}
                     </button>
                     {refreshIdeasError && (
                       <p className="text-sm text-red-600 text-center">{refreshIdeasError}</p>

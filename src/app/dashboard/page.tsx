@@ -19,6 +19,13 @@ import {
 import LeafLogo from '@/components/LeafLogo';
 import UserMenu from '@/components/UserMenu';
 import {
+  primaryButtonClass,
+  secondaryButtonClass,
+  uploadIcon,
+  swapIcon,
+  plusIcon,
+} from '@/components/action-buttons';
+import {
   getScanDiyState,
   buildVerifyUrl,
   openAddDiy,
@@ -351,21 +358,24 @@ export default function DashboardPage() {
                     <p className="font-medium text-gray-900 truncate">{item.title}</p>
                     <p className="text-sm text-gray-500 truncate">{item.subtitle}</p>
                   </div>
-                  <span className="shrink-0 flex flex-col items-end space-y-1">
+                  {/* Buttons sit side by side on one line, like the
+                      History rows, instead of stacking as text links. */}
+                  <span className="shrink-0 flex items-center gap-2">
                     <button
                       onClick={item.onClick}
                       disabled={item.cta === 'Add DIY' && addDiyId === item.scanId}
-                      className="text-sm font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
+                      className={primaryButtonClass}
                     >
+                      {item.cta === 'Add DIY' ? plusIcon : uploadIcon}
                       {item.cta === 'Add DIY' && addDiyId === item.scanId ? 'Loading…' : item.cta}
                     </button>
                     {item.onChooseAgain && (
                       <button
                         onClick={item.onChooseAgain}
                         disabled={addDiyId === item.scanId}
-                        className="text-xs font-medium text-gray-500 hover:text-green-700 disabled:opacity-50"
+                        className={secondaryButtonClass}
                       >
-                        {addDiyId === item.scanId ? 'Loading…' : 'Choose again'}
+                        {addDiyId === item.scanId ? 'Loading…' : (<>{swapIcon} Choose again</>)}
                       </button>
                     )}
                   </span>

@@ -11,6 +11,19 @@ import { useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { getScanDiyState, buildVerifyUrl, openAddDiy } from '@/lib/diy-continue';
 import ConfirmModal from '@/components/ConfirmModal';
+import {
+  deleteButtonClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+  loadMoreButtonClass,
+  trashIcon,
+  uploadIcon,
+  retryIcon,
+  swapIcon,
+  plusIcon,
+  xIcon,
+  chevronDownIcon,
+} from '@/components/action-buttons';
 
 interface Scan {
   id: string;
@@ -303,52 +316,6 @@ export default function HistoryPage() {
     }
   }
 
-  // Delete buttons share one look: a real button (not a plain red
-  // text link) with a trash icon, so they read as destructive
-  // actions before you tap them.
-  const deleteButtonClass =
-    'inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors';
-  const trashIcon = (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
-    </svg>
-  );
-  // The other row buttons share the same treatment: green filled
-  // for the go-do-it action, neutral for re-choosing, and a
-  // bordered full-width button for loading more. Each carries a
-  // small icon instead of a trailing "→".
-  const primaryButtonClass =
-    'inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-green-700 transition-colors';
-  const secondaryButtonClass =
-    'inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50';
-  const loadMoreButtonClass =
-    'w-full inline-flex items-center justify-center gap-1 rounded-xl border border-gray-200 bg-white py-3 text-sm font-semibold text-green-600 hover:bg-green-50 transition-colors disabled:opacity-50';
-  const uploadIcon = (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-    </svg>
-  );
-  const retryIcon = (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-    </svg>
-  );
-  const swapIcon = (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-    </svg>
-  );
-  const xIcon = (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
-  const chevronDownIcon = (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-    </svg>
-  );
-
   // What the delete popup says, built from the row it was opened
   // on: the scan's linked DIY project and points, the project's
   // points, or the all-scans / all-projects totals. Nothing is
@@ -639,53 +606,6 @@ export default function HistoryPage() {
                       {!scan.image_url && (
                         <p className="text-xs text-gray-400 mt-2">Photo wasn&apos;t saved with this scan.</p>
                       )}
-                      <div className="flex items-center space-x-3 mt-2">
-                        {diy.status === 'none' && (
-                          <button
-                            onClick={() => handleAddDiy(scan)}
-                            disabled={addDiyId === scan.id}
-                            className="text-xs font-semibold text-green-600 hover:text-green-700 disabled:opacity-50"
-                          >
-                            {addDiyId === scan.id ? 'Loading ideas…' : 'Add DIY'}
-                          </button>
-                        )}
-                        {diy.status === 'selected' && diy.selectedAction && (
-                          <button
-                            onClick={() => router.push(resumeUrl)}
-                            className={primaryButtonClass}
-                          >
-                            {uploadIcon}
-                            Continue to upload
-                          </button>
-                        )}
-                        {diy.status === 'failed' && (
-                          <button
-                            onClick={() => router.push(resumeUrl)}
-                            className={primaryButtonClass}
-                          >
-                            {retryIcon}
-                            Try again
-                          </button>
-                        )}
-                        {diy.status === 'pending' && (
-                          <button
-                            onClick={() => router.push(resumeUrl)}
-                            className={primaryButtonClass}
-                          >
-                            {uploadIcon}
-                            Upload again
-                          </button>
-                        )}
-                        {diy.status !== 'none' && (
-                          <button
-                            onClick={() => handleAddDiy(scan, true)}
-                            disabled={addDiyId === scan.id}
-                            className={secondaryButtonClass}
-                          >
-                            {addDiyId === scan.id ? 'Loading…' : (<>{swapIcon} Choose again</>)}
-                          </button>
-                        )}
-                      </div>
                     </div>
                     <div className="flex flex-col items-end space-y-2 shrink-0">
                       <span className="text-xs text-gray-400">
@@ -700,6 +620,58 @@ export default function HistoryPage() {
                         Delete
                       </button>
                     </div>
+                  </div>
+                  {/* Action buttons sit on their own full-width row,
+                      like the Projects tab, so each button stays on
+                      one line instead of wrapping in the narrow
+                      middle column next to the photo. */}
+                  <div className="flex flex-wrap items-center gap-3 mt-3">
+                    {diy.status === 'none' && (
+                      <button
+                        onClick={() => handleAddDiy(scan)}
+                        disabled={addDiyId === scan.id}
+                        className={primaryButtonClass}
+                      >
+                        {plusIcon}
+                        {addDiyId === scan.id ? 'Loading ideas…' : 'Add DIY'}
+                      </button>
+                    )}
+                    {diy.status === 'selected' && diy.selectedAction && (
+                      <button
+                        onClick={() => router.push(resumeUrl)}
+                        className={primaryButtonClass}
+                      >
+                        {uploadIcon}
+                        Continue to upload
+                      </button>
+                    )}
+                    {diy.status === 'failed' && (
+                      <button
+                        onClick={() => router.push(resumeUrl)}
+                        className={primaryButtonClass}
+                      >
+                        {retryIcon}
+                        Try again
+                      </button>
+                    )}
+                    {diy.status === 'pending' && (
+                      <button
+                        onClick={() => router.push(resumeUrl)}
+                        className={primaryButtonClass}
+                      >
+                        {uploadIcon}
+                        Upload again
+                      </button>
+                    )}
+                    {diy.status !== 'none' && (
+                      <button
+                        onClick={() => handleAddDiy(scan, true)}
+                        disabled={addDiyId === scan.id}
+                        className={secondaryButtonClass}
+                      >
+                        {addDiyId === scan.id ? 'Loading…' : (<>{swapIcon} Choose again</>)}
+                      </button>
+                    )}
                   </div>
                 </div>
                 );
