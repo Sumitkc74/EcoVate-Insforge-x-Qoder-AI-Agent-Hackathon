@@ -43,7 +43,7 @@ export function normalizeCode(code: string): string {
 async function signChallenge(scanId: string, code: string, exp: number): Promise<string> {
   const hmacKey = await crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(process.env.INSFORGE_SERVICE_KEY || ''),
+    new TextEncoder().encode(process.env.SUPABASE_SERVICE_ROLE_KEY || ''),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],

@@ -34,8 +34,10 @@ const nextConfig: NextConfig = {
               // from cdn.jsdelivr.net. Without these the worker
               // loads but every OCR read fails with a CSP error
               // (seen live Nov 22), so label reading was dead and
-              // scans fell back to AI vision alone.
-              'connect-src \'self\' blob: https://*.us-west.insforge.app https://storage.googleapis.com https://cdn.jsdelivr.net',
+              // scans fell back to AI vision alone. The Supabase
+              // host is allow-listed because the browser client
+              // talks to it directly (auth + session refresh).
+              'connect-src \'self\' blob: https://*.supabase.co https://storage.googleapis.com https://cdn.jsdelivr.net',
               "font-src 'self'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
@@ -54,8 +56,8 @@ const nextConfig: NextConfig = {
   
   // Environment variables available at build time
   env: {
-    NEXT_PUBLIC_INSFORGE_URL: process.env.NEXT_PUBLIC_INSFORGE_URL,
-    NEXT_PUBLIC_INSFORGE_ANON_KEY: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   },
 };
 

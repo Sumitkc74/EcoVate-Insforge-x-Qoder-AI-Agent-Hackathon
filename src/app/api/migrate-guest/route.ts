@@ -22,7 +22,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, serverStorage } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/supabase';
 import { storageKeyFromUrl } from '@/lib/storage';
 import {
   assertServiceKey,
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       const avatarUrl = (guestRow as { avatar?: string | null } | null)?.avatar || null;
       const avatarKey = avatarUrl ? storageKeyFromUrl(avatarUrl) : null;
       if (avatarKey && avatarKey.startsWith(`avatars/${guestId}/`)) {
-        await serverStorage.from('user-uploads').remove(avatarKey);
+        await serverStorage.from('user-uploads').remove([avatarKey]);
       }
     } catch {
       // Best effort: the orphaned file is unreferenced either way.

@@ -28,7 +28,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb } from '@/lib/insforge';
+import { serverDb } from '@/lib/supabase';
 import { imageUrlForDisplay } from '@/lib/storage';
 import {
   assertServiceKey,

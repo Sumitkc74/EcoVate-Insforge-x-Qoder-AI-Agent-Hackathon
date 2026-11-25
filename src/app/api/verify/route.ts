@@ -20,7 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, serverStorage } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/supabase';
 import { verifyChallengeWithGroq, verifyMatchWithGroq, ChallengeVerdict } from '@/lib/groq-vision';
 import { matchAsk } from '@/lib/verify-prompts';
 import { uploadImage, storageKeyFromUrl } from '@/lib/storage';

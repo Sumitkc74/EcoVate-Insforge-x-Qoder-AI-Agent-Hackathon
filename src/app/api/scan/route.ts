@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runCoordinatorAgent } from '@/lib/agents';
-import { serverDb } from '@/lib/insforge';
+import { serverDb } from '@/lib/supabase';
 import { uploadImage, imageUrlForDisplay } from '@/lib/storage';
 import { checkDetailsAgainstPhoto, DETAIL_MISMATCH_CONFIDENCE } from '@/lib/detail-check';
 import {

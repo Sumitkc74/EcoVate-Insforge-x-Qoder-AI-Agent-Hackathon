@@ -1,45 +1,38 @@
 /**
  * Server-side auth for API routes.
  *
- * The Insforge session lives client-side (in-memory token + httpOnly
- * refresh cookie), so the SDK's server-side getCurrentUser() has
- * nothing to read in an edge route and always fails — which is why
- * the routes used to trust a userId sent in the body. That meant
- * anyone could pass any user id (they are public via the leaderboard)
- * and read, write or delete another user's data.
+ * The Supabase session lives client-side (cookie-based, via
+ * @supabase/ssr), so a server route cannot just call getCurrentUser()
+ * — which is why the routes used to trust a userId sent in the body.
+ * That meant anyone could pass any user id (they are public via the
+ * leaderboard) and read, write or delete another user's data.
  *
  * Now every user-scoped route validates the session instead: the
  * client sends its access token in the Authorization header (see
- * lib/client-auth.ts), and requireUser() checks it against the
- * Insforge backend — the same endpoint the SDK calls in server mode
- * (GET /api/auth/sessions/current). The user id used after that comes
+ * lib/client-auth.ts), and requireUser() checks it with
+ * supabase.auth.getUser(token). The user id used after that comes
  * from the validated token, never from the request body.
+ *
+ * Supabase port of the live Insforge version: the query-builder
+ * calls are unchanged (Supabase's PostgREST API matches the shape),
+ * but session validation, the HMAC signing key, and the storage
+ * list/remove calls are Supabase's. Guest (anonymous) sessions are
+ * unchanged by design — the Supabase Auth system has no anonymous
+ * sign-in, so the server still issues its own HMAC-signed guest
+ * tokens and guest rows still live in public.users.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, serverStorage } from './insforge';
+import { serverDb, serverStorage, supabase, normalizeUser } from './supabase';
 import { storageKeyFromUrl } from './storage';
-
-// No fallback URL here: the old hard-coded fallback pointed at a
-// dead backend, so a deploy without the env var silently broke
-// session validation for every Google user. Fail loudly instead.
-const INSFORGE_URL = (() => {
-  const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
-  if (!url) {
-    throw new Error(
-      'NEXT_PUBLIC_INSFORGE_URL is not set — set it in Vercel (Production) to the Insforge backend URL.',
-    );
-  }
-  return url;
-})();
 
 // Thrown when the server itself is misconfigured (the service key is
 // missing). Distinct from an auth failure so routes can answer 503.
 export class ServiceConfigError extends Error {}
 
 export function assertServiceKey(): void {
-  if (!process.env.INSFORGE_SERVICE_KEY) {
-    throw new ServiceConfigError('INSFORGE_SERVICE_KEY is not set');
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new ServiceConfigError('SUPABASE_SERVICE_ROLE_KEY is not set');
   }
 }
 
@@ -61,7 +54,7 @@ export function normalizeDisplayName(input: unknown): string {
   return cleaned || 'Guest';
 }
 
-// Anonymous sessions: the Insforge SDK has no anonymous sign-in, so
+// Anonymous sessions: Supabase Auth has no anonymous sign-in, so
 // the server issues anonymous identities itself. The token is
 // `anon_<userId>_<hex signature>` where the signature is
 // HMAC-SHA256(service key, `anon:<userId>`). Only the server knows
@@ -76,7 +69,7 @@ const ANON_TOKEN_PREFIX = 'anon_';
 async function getAnonKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(process.env.INSFORGE_SERVICE_KEY || ''),
+    new TextEncoder().encode(process.env.SUPABASE_SERVICE_ROLE_KEY || ''),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify'],
@@ -136,28 +129,25 @@ export async function validateAnonToken(token: string): Promise<AuthedUser | nul
 
 // Validate the Bearer token from the request and return the user it
 // belongs to, or null when the token is missing, invalid or expired.
-// Two token kinds: Insforge access tokens (checked against the
-// backend, as before) and anonymous tokens (checked locally above).
-// (The service-key check is separate — routes that use the service
-// client call assertServiceKey() first; routes that only validate a
-// token, like /api/material-guess, do not need the service key.)
+// Two token kinds: Supabase access tokens (checked with
+// supabase.auth.getUser) and anonymous tokens (checked locally
+// above). (The service-key check is separate — routes that use the
+// service client call assertServiceKey() first; routes that only
+// validate a token, like /api/material-guess, do not need the
+// service key.)
 export async function requireUser(request: NextRequest): Promise<AuthedUser | null> {
   const header = request.headers.get('authorization');
   const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
   if (!token) return null;
   if (token.startsWith(ANON_TOKEN_PREFIX)) return validateAnonToken(token);
   try {
-    const res = await fetch(`${INSFORGE_URL}/api/auth/sessions/current`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const json = await res.json().catch(() => null);
-    const user = json?.user;
-    if (!user?.id) return null;
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return null;
+    const user = normalizeUser(data.user);
+    if (!user) return null;
     return {
       id: user.id,
-      email: typeof user.email === 'string' ? user.email : null,
+      email: user.email || null,
       name: user.profile?.name ?? null,
       avatar: user.profile?.avatar_url ?? null,
       isAnonymous: false,
@@ -367,7 +357,7 @@ export async function overDailyCap(
 // The caps now count attempts instead; the old tables are only the
 // fallback until the one-time SQL creates usage_attempts.
 //
-// One-time SQL (Insforge SQL Editor):
+// One-time SQL (Supabase SQL Editor — also in supabase-schema.sql):
 //   CREATE TABLE IF NOT EXISTS public.usage_attempts (
 //     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 //     user_id UUID NOT NULL,
@@ -378,7 +368,7 @@ export async function overDailyCap(
 //     ON public.usage_attempts (user_id, kind, created_at DESC);
 export type AttemptKind = 'scan' | 'verify' | 'material_guess' | 'diy_refresh';
 
-// Whether an SDK/DB error means "the usage_attempts table does not
+// Whether a DB error means "the usage_attempts table does not
 // exist yet" (the one-time SQL was never run) as opposed to a real
 // failure. Only the missing-table case may fall back to counting
 // surviving rows; every other counting failure fails closed, so a
@@ -485,6 +475,17 @@ export function unauthorizedResponse(): NextResponse {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 }
 
+// Supabase storage remove() takes an array of paths and reports
+// failures in { error } instead of throwing. Best-effort callers
+// ignore both.
+async function removeStorageKey(key: string): Promise<void> {
+  try {
+    await serverStorage.from(STORAGE_BUCKET).remove([key]);
+  } catch {
+    // Best effort: the orphaned file is unreferenced either way.
+  }
+}
+
 // Guest expiry. A guest account is gone the moment its owner logs
 // out: the token lives only in that browser's localStorage, so a
 // logged-out guest can never come back — the next visit makes a new
@@ -525,11 +526,7 @@ export async function deleteGuestAccount(userId: string): Promise<void> {
           key.startsWith(`verifications/${userId}/`) ||
           key.startsWith(`avatars/${userId}/`))
       ) {
-        try {
-          await serverStorage.from(STORAGE_BUCKET).remove(key);
-        } catch {
-          // Best effort: the orphaned file is unreferenced either way.
-        }
+        await removeStorageKey(key);
       }
     }
   } catch {
@@ -571,8 +568,8 @@ export async function sweepExpiredGuests(): Promise<number> {
     if (candidates.length === 0) return 0;
     const ids = candidates.map((u) => u.id);
     // Any scan, action or attempt at/after the cutoff keeps the
-    // account. The SDK has no .gte, so read the newest rows and
-    // filter in JS — newest first, so the cutoff check is exact.
+    // account. Read the newest rows and filter in JS — newest first,
+    // so the cutoff check is exact.
     const [scansRes, actionsRes, attemptsRes] = await Promise.all([
       serverDb
         .from('scans')
@@ -616,6 +613,35 @@ export async function sweepExpiredGuests(): Promise<number> {
   }
 }
 
+// List every stored key under one top-level prefix (scans/,
+// verifications/ or avatars/). Supabase list() is one level deep,
+// so list the prefix to find owner folders, then list each owner's
+// folder for files. A file sitting directly under the prefix (the
+// app never writes one) is returned as-is.
+async function listStorageKeys(prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  const { data: owners, error } = await serverStorage
+    .from(STORAGE_BUCKET)
+    .list(prefix, { limit: 100 });
+  if (error || !owners) return keys;
+  for (const owner of owners) {
+    const ownerName = owner.name;
+    if (!ownerName) continue;
+    if (owner.id !== null && ownerName.includes('.')) {
+      keys.push(`${prefix}/${ownerName}`);
+      continue;
+    }
+    const { data: files, error: filesError } = await serverStorage
+      .from(STORAGE_BUCKET)
+      .list(`${prefix}/${ownerName}`, { limit: 100 });
+    if (filesError || !files) continue;
+    for (const f of files) {
+      if (f.name) keys.push(`${prefix}/${ownerName}/${f.name}`);
+    }
+  }
+  return keys;
+}
+
 // Delete storage files whose owner no longer has a users row.
 // Direct row deletes (dashboard, API) bypass deleteGuestAccount,
 // so their files would otherwise sit orphaned forever. Runs on
@@ -655,23 +681,16 @@ export async function sweepOrphanedStorage(): Promise<number> {
     // in a folder named after its owner's user id.
     const orphanKeyPattern = /^(scans|verifications|avatars)\/([^/]+)\//;
     let deleted = 0;
-    for (const prefix of ['scans/', 'verifications/', 'avatars/']) {
-      const { data, error } = await serverStorage.from(STORAGE_BUCKET).list({ prefix, limit: 100 });
-      if (error || !data) continue;
-      const objects = ((data as { objects?: { key: string }[] }).objects ||
-        (Array.isArray(data) ? (data as { key: string }[]) : [])) as { key: string }[];
-      for (const obj of objects) {
+    for (const prefix of ['scans', 'verifications', 'avatars']) {
+      const keys = await listStorageKeys(prefix);
+      for (const key of keys) {
         if (deleted >= 100) return deleted;
-        const match = orphanKeyPattern.exec(obj.key);
+        const match = orphanKeyPattern.exec(key);
         if (!match) continue;
-        if (referenced.has(obj.key)) continue;
+        if (referenced.has(key)) continue;
         if (liveIds.has(match[2])) continue;
-        try {
-          await serverStorage.from(STORAGE_BUCKET).remove(obj.key);
-          deleted++;
-        } catch {
-          // Best effort: a leftover file is unreferenced either way.
-        }
+        await removeStorageKey(key);
+        deleted++;
       }
     }
     return deleted;

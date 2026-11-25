@@ -8,7 +8,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { type ScanResult, type DIYIdea } from '@/lib/insforge';
+import { type ScanResult, type DIYIdea } from '@/lib/supabase';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import UserMenu from '@/components/UserMenu';
 

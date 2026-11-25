@@ -16,7 +16,7 @@
  */
 
 import { generateIdeasWithGroq } from '../groq-vision';
-import type { DIYIdea } from '../insforge';
+import type { DIYIdea } from '../supabase';
 
 const GEMINI_MODEL = 'gemini-3.8-flash';
 

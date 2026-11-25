@@ -4,7 +4,7 @@
  * Utility functions for Google OAuth and session management.
  */
 
-import { auth } from './insforge';
+import { auth } from './supabase';
 
 // Sign in with Google OAuth
 export async function signInWithGoogle() {
@@ -30,7 +30,7 @@ export async function getUser() {
 
 // Create or update user profile in database
 export async function ensureUserProfile(userId: string, email: string, name?: string, avatar?: string) {
-  const { db } = await import('./insforge');
+  const { db } = await import('./supabase');
   
   // Check if user exists
   const { data: existingUser } = await db

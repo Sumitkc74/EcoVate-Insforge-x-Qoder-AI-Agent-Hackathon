@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guessMaterialAndPackagingWithGroq } from '@/lib/groq-vision';
-import { serverDb } from '@/lib/insforge';
+import { serverDb } from '@/lib/supabase';
 import {
   requireUser,
   overAttemptCap,

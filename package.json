@@ -9,7 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@insforge/sdk": "^1.2.2",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.119.0",
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",
     "next": "16.2.1",

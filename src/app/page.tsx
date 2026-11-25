@@ -8,7 +8,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth } from '@/lib/insforge';
+import { auth } from '@/lib/supabase';
 
 export default function HomePage() {
   const router = useRouter();

@@ -2,12 +2,9 @@
  * Client-side auth for API calls.
  *
  * Two kinds of session:
- * - Google sign-in: the access token lives in the SDK's in-memory
- *   session and is not exposed by getCurrentUser — but once the
- *   session is loaded, the SDK's HTTP client carries it in its
- *   Authorization header. So this helper first makes sure a session
- *   is loaded (getCurrentUser refreshes it via the httpOnly cookie
- *   when needed), then reads the token from the HTTP client.
+ * - Google sign-in: Supabase stores the session in cookies (via
+ *   @supabase/ssr), so getSession() reads the access token locally
+ *   — no network call, and no 401 noise when there is no session.
  * - Anonymous (guest): the server issues a signed token at
  *   /api/anon-session, stored in localStorage. No Google account,
  *   2 scans and 2 verifications a day, history in this browser only.
@@ -17,7 +14,7 @@
  * session wins (a guest who later signs in uses the Google account).
  */
 
-import { auth, insforge } from './insforge';
+import { auth } from './supabase';
 
 export interface AnonSession {
   userId: string;
@@ -77,12 +74,9 @@ export interface ClientIdentity {
 // their Google name — shows in the header everywhere. The profile
 // call never breaks sign-in: any failure falls back to the session
 // identity below.
-// The SDK's getCurrentUser() refreshes the Google session, which
-// answers 401 when there is none — and it is called on every page
-// and every API call, so a guest collected a 401 per navigation.
 // Once this page load has established there is no Google session,
-// skip the SDK and go straight to the guest session. A Google
-// sign-in is a full redirect, so a fresh page load re-checks.
+// skip the session check and go straight to the guest session. A
+// Google sign-in is a full redirect, so a fresh page load re-checks.
 let googleSessionAbsent = false;
 
 export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
@@ -131,14 +125,10 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
 export async function getAccessToken(): Promise<string | null> {
   if (!googleSessionAbsent) {
     try {
-      const { data } = await auth.getCurrentUser();
-      if (data?.user) {
-        const headers = insforge.getHttpClient().getHeaders() as Record<string, string>;
-        const header = headers['Authorization'] || headers['authorization'];
-        if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length);
-      } else {
-        googleSessionAbsent = true;
-      }
+      const { data } = await auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) return token;
+      googleSessionAbsent = true;
     } catch {
       // No Google session — fall through to the guest session.
       googleSessionAbsent = true;
@@ -175,7 +165,7 @@ export async function authedFetch(
   });
   if (response.status === 401) {
     const { data } = await auth.refreshSession();
-    const fresh = (data as { accessToken?: string } | null)?.accessToken;
+    const fresh = data?.session?.access_token;
     if (fresh) {
       response = await fetch(input, {
         ...init,

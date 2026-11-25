@@ -26,7 +26,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, serverStorage } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/supabase';
 import { uploadImage, storageKeyFromUrl, imageUrlForDisplay } from '@/lib/storage';
 import {
   assertServiceKey,
@@ -50,7 +50,7 @@ async function deleteOldAvatar(userId: string, oldUrl: string | null): Promise<v
   // Only ever delete this user's own avatar files.
   if (!key || !key.startsWith(`avatars/${userId}/`)) return;
   try {
-    await serverStorage.from(BUCKET_NAME).remove(key);
+    await serverStorage.from(BUCKET_NAME).remove([key]);
   } catch {
     // Best effort: the orphaned file is unreferenced either way.
   }

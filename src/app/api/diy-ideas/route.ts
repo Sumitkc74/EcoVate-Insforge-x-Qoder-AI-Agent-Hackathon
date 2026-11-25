@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb, serverStorage } from '@/lib/insforge';
+import { serverDb, serverStorage } from '@/lib/supabase';
 import { storageKeyFromUrl } from '@/lib/storage';
 import { runVisionAgent } from '@/lib/agents/vision-agent';
 import { runDIYAgent } from '@/lib/agents/diy-agent';

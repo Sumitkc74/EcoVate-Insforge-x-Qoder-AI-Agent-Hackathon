@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverStorage } from '@/lib/insforge';
+import { serverStorage } from '@/lib/supabase';
 import { assertServiceKey, handleRouteError } from '@/lib/server-auth';
 import { verifyImageSignature } from '@/lib/storage';
 

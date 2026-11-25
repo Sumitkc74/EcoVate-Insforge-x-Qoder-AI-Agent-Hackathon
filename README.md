@@ -68,7 +68,7 @@ Captured from the live demo.
 ## Tech stack
 
 - Next.js 16.2.1, React 19, TypeScript, Tailwind CSS 4
-- Insforge (Postgres database, auth, and storage) as the backend
+- Supabase (Postgres database, auth, and storage) as the backend
 - Gemini API for vision, with Groq as the free-tier fallback
 - Tesseract.js for on-device label reading, TensorFlow.js + COCO-SSD for on-device shape detection
 
@@ -78,7 +78,7 @@ Captured from the live demo.
 
 - Node.js 20 or later
 - npm
-- An Insforge project, plus Gemini and Groq API keys (both have free tiers)
+- A Supabase project, plus Gemini and Groq API keys (both have free tiers)
 
 ### Installation
 
@@ -93,16 +93,16 @@ npm install
 Create a `.env.local` file in the project root:
 
 ```env
-NEXT_PUBLIC_INSFORGE_URL=your_insforge_url
-NEXT_PUBLIC_INSFORGE_ANON_KEY=your_insforge_anon_key
-INSFORGE_SERVICE_KEY=your_insforge_service_key
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
 # Optional: override the Groq vision model (default is qwen/qwen3.8-27b)
 GROQ_VISION_MODEL=qwen/qwen3.8-27b
 ```
 
-Keep `INSFORGE_SERVICE_KEY`, `GEMINI_API_KEY`, and `GROQ_API_KEY` server-side and do not expose or commit them.
+Keep `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, and `GROQ_API_KEY` server-side and do not expose or commit them.
 
 ### Run the development server
 
@@ -132,7 +132,7 @@ npm run start
 - Guests: 2 scans per day. Signed-in users: 30 scans and verifications per day. Guests share a pool of 40 scans per day.
 - Photo uploads: JPEG, PNG, or WebP, up to 5 MB.
 - The leaderboard lists only scores above 0.
-- The live demo runs on free tiers: the Insforge project pauses after a week of inactivity, and if the Gemini quota runs out, scans fall back to Groq.
+- The live demo runs on free tiers: the Supabase project pauses after ~7 days of low database activity, and if the Gemini quota runs out, scans fall back to Groq.
 
 ## Project structure
 

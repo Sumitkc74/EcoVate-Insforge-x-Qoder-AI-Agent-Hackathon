@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverDb } from '@/lib/insforge';
+import { serverDb } from '@/lib/supabase';
 import {
   requireUser,
   unauthorizedResponse,

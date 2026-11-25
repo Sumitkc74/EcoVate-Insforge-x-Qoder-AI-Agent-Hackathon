@@ -1,8 +1,8 @@
 /**
  * Storage Helpers
  *
- * Functions for uploading and retrieving images from InsForge S3 storage.
- * Uploads happen from API routes only, so they use the service-key
+ * Functions for uploading and retrieving images from Supabase Storage.
+ * Uploads happen from API routes only, so they use the service-role
  * client (bypasses storage policies).
  *
  * Photos are PRIVATE: the user-uploads bucket is private, and nothing
@@ -17,23 +17,21 @@
  *   <img> tag, which cannot send an Authorization header.
  * The signature is an HMAC over `image:<key>:<exp>` with the service
  * key — the same pattern guest tokens use in server-auth.ts.
+ *
+ * NOTE (migration): the Nov 10 Supabase plan called for a PUBLIC
+ * bucket, but the live app went private on Nov 22-23 (bucket flipped
+ * to private, signed-URL proxy, privacy copy updated). This port
+ * keeps the live private design, not the plan's public one — the
+ * bucket must be created PRIVATE in Supabase, and the /api/image
+ * proxy is the only way photos are served. Supabase's own signed
+ * URLs are not used; the app's HMAC proxy works the same on either
+ * backend and keeps one code path.
  */
 
-import { serverStorage } from './insforge';
+import { serverStorage } from './supabase';
 
 const BUCKET_NAME = 'user-uploads';
-// No fallback URL here: the old hard-coded fallback pointed at a
-// dead backend, so a deploy without the env var built every public
-// photo URL against a dead host. Fail loudly instead.
-const INSFORGE_URL = (() => {
-  const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
-  if (!url) {
-    throw new Error(
-      'NEXT_PUBLIC_INSFORGE_URL is not set — set it in Vercel (Production) to the Insforge backend URL.',
-    );
-  }
-  return url;
-})();
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 
 export const IMAGE_PROXY_PATH = '/api/image';
 // Signed scan/verification URLs live 15 minutes: long enough for a
@@ -53,10 +51,13 @@ const ALLOWED_IMAGE_TYPES: Record<string, string> = {
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 // Extract the storage key from any form a stored image URL takes:
-// the old permanent public URL
-// (.../api/storage/buckets/user-uploads/objects/<key>), the new
-// proxy URL (/api/image?key=<key>), or a bare key. External URLs
-// (Google profile photos) and anything else return null.
+// the Supabase permanent public URL
+// (.../storage/v1/object/public/user-uploads/<key>), the old
+// Insforge permanent public URL
+// (.../api/storage/buckets/user-uploads/objects/<key>, still on
+// rows exported from Insforge), the new proxy URL
+// (/api/image?key=<key>), or a bare key. External URLs (Google
+// profile photos) and anything else return null.
 export function storageKeyFromUrl(url: string | null): string | null {
   if (!url) return null;
   if (url.startsWith(`${IMAGE_PROXY_PATH}?key=`)) {
@@ -67,13 +68,18 @@ export function storageKeyFromUrl(url: string | null): string | null {
       return null;
     }
   }
-  const marker = `/api/storage/buckets/${BUCKET_NAME}/objects/`;
-  const i = url.indexOf(marker);
-  if (i >= 0) {
-    try {
-      return decodeURIComponent(url.slice(i + marker.length));
-    } catch {
-      return null;
+  const markers = [
+    `/storage/v1/object/public/${BUCKET_NAME}/`,
+    `/api/storage/buckets/${BUCKET_NAME}/objects/`,
+  ];
+  for (const marker of markers) {
+    const i = url.indexOf(marker);
+    if (i >= 0) {
+      try {
+        return decodeURIComponent(url.slice(i + marker.length));
+      } catch {
+        return null;
+      }
     }
   }
   return null;
@@ -90,7 +96,7 @@ export async function signImageKey(key: string, ttlSeconds: number = IMAGE_URL_T
 async function signImageKeyAt(key: string, exp: number): Promise<string> {
   const hmacKey = await crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(process.env.INSFORGE_SERVICE_KEY || ''),
+    new TextEncoder().encode(process.env.SUPABASE_SERVICE_ROLE_KEY || ''),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -163,11 +169,20 @@ export async function uploadImage(file: File, path: string): Promise<{ url: stri
     // client for a scan/verification photo must run it through
     // imageUrlForDisplay first, which signs it. (Avatar uploads
     // are public, so the unsigned proxy URL is the display URL.)
-    const url = `${IMAGE_PROXY_PATH}?key=${encodeURIComponent(data.key)}`;
+    const url = `${IMAGE_PROXY_PATH}?key=${encodeURIComponent(data.path)}`;
 
-    return { url, key: data.key, error: null };
+    return { url, key: data.path, error: null };
   } catch (error) {
     console.error('Upload error:', error);
     return { url: null, key: null, error: error as Error };
   }
+}
+
+// Get a public URL for an image key. Only meaningful while the
+// bucket is public; the live bucket is private, so nothing in the
+// app calls this for display — imageUrlForDisplay is the display
+// path. Kept for the data-export tooling and for any caller that
+// genuinely needs the storage URL form.
+export function getPublicUrl(key: string): string {
+  return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${encodeURIComponent(key)}`;
 }

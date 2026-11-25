@@ -10,7 +10,7 @@ import { runVisionAgent } from './vision-agent';
 import { runResearchAgent } from './research-agent';
 import { runDIYAgent } from './diy-agent';
 import { mergeVisionWithHints } from '../vision-merge';
-import type { ScanResult } from '../insforge';
+import type { ScanResult } from '../supabase';
 
 export interface CoordinatorResult {
   success: boolean;

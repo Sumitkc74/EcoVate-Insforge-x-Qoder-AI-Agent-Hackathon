@@ -22,7 +22,7 @@
  * results page on the DIY tab; "Choose again" asks for a fresh set.
  */
 
-import type { DIYIdea, ScanResult } from './insforge';
+import type { DIYIdea, ScanResult } from './supabase';
 import { authedFetch, readApiJson } from './client-auth';
 
 export interface DiyActionLike {
