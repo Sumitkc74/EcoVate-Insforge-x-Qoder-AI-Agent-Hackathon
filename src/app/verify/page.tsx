@@ -94,6 +94,28 @@ function VerifyContent() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Timed progress messages while a verification runs. The server
+  // does the whole check in one round trip, so these are timed, not
+  // live stage reports — they say what the check is doing, not the
+  // exact moment. Points checks rotate after ~12s; feedback-only
+  // checks have a single step.
+  const VERIFY_STEPS_POINTS = [
+    'Checking that the finished project matches your idea…',
+    'Reading the code on the paper…',
+  ];
+  const VERIFY_STEPS_FEEDBACK = ['Checking that the photo matches your idea…'];
+  const [verifyStep, setVerifyStep] = useState(0);
+
+  useEffect(() => {
+    if (!isVerifying) {
+      setVerifyStep(0);
+      return;
+    }
+    if (captureMode !== 'points') return;
+    const t = setTimeout(() => setVerifyStep(1), 12000);
+    return () => clearTimeout(t);
+  }, [isVerifying, captureMode]);
+
   const fetchUsage = useCallback(async () => {
     try {
       const response = await authedFetch('/api/dashboard');
@@ -591,6 +613,23 @@ function VerifyContent() {
               }}
             />
           ) : previewImage ? (
+            isVerifying ? (
+              // Checking State — same loading-card pattern as the scan
+              // page: the check takes ~30s, and a bare button spinner
+              // reads as stuck. Steps are timed (see verifyStep), not
+              // live server stages.
+              <div className="p-8 text-center">
+                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+                  <svg className="w-10 h-10 text-green-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Checking your project...</h2>
+                <p className="text-gray-600">{(captureMode === 'points' ? VERIFY_STEPS_POINTS : VERIFY_STEPS_FEEDBACK)[verifyStep]}</p>
+                <p className="text-gray-500 text-sm mt-3">This usually takes about 30 seconds.</p>
+              </div>
+            ) : (
             <>
               <img
                 src={previewImage}
@@ -629,6 +668,7 @@ function VerifyContent() {
                 </button>
               </div>
             </>
+            )
           ) : (
             <div className="p-8 text-center">
               <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
