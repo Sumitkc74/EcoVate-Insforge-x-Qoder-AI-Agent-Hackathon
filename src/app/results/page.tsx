@@ -183,8 +183,8 @@ function ResultsContent() {
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => router.push('/scan')}
-              aria-label="Back to scan"
+              onClick={() => router.back()}
+              aria-label="Back"
               className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
