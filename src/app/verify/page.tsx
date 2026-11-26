@@ -367,21 +367,21 @@ function VerifyContent() {
             <div className="space-y-2 mb-4">
               <button
                 onClick={handleRetry}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
               >
                 Take a Camera Photo for Points
               </button>
               <button
                 onClick={handleChooseAgain}
                 disabled={choosingAgain}
-                className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
+                className="w-full text-sm font-medium text-green-700 hover:text-green-700 disabled:opacity-50 py-1"
               >
                 {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
               </button>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+              className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
             >
               View Dashboard
             </button>
@@ -416,8 +416,8 @@ function VerifyContent() {
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Project Verified!</h1>
               <p className="text-gray-600 mb-6">{result.feedback}</p>
 
-              <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-6 mb-6">
-                <p className="text-green-100 text-sm mb-1">You earned</p>
+              <div className="bg-gradient-to-r from-green-700 to-emerald-700 rounded-2xl p-6 mb-6">
+                <p className="text-white text-sm mb-1">You earned</p>
                 <p className="text-4xl font-bold text-white">{result.impactScore} points</p>
               </div>
 
@@ -427,7 +427,7 @@ function VerifyContent() {
                   <p className="text-xs text-blue-800">kg CO2 saved</p>
                 </div>
                 <div className="bg-amber-50 rounded-xl p-4">
-                  <p className="text-2xl font-bold text-amber-600">{(estimatedCo2Saved * 2.5).toFixed(1)}</p>
+                  <p className="text-2xl font-bold text-amber-700">{(estimatedCo2Saved * 2.5).toFixed(1)}</p>
                   <p className="text-xs text-amber-800">L water saved</p>
                 </div>
               </div>
@@ -485,14 +485,14 @@ function VerifyContent() {
             <div className="space-y-2 mb-4">
               <button
                 onClick={handleRetry}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
               >
                 Retry with a new code
               </button>
               <button
                 onClick={handleChooseAgain}
                 disabled={choosingAgain}
-                className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
+                className="w-full text-sm font-medium text-green-700 hover:text-green-700 disabled:opacity-50 py-1"
               >
                 {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
               </button>
@@ -507,7 +507,7 @@ function VerifyContent() {
 
           <button
             onClick={() => router.push('/dashboard')}
-            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+            className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
           >
             View Dashboard
           </button>
@@ -551,7 +551,7 @@ function VerifyContent() {
 
         {/* Project Info */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-1">{projectTitle}</h2>
+          <h1 className="font-semibold text-gray-900 mb-1">{projectTitle}</h1>
           <p className="text-sm text-gray-500">Estimated CO2 savings: {estimatedCo2Saved} kg</p>
         </div>
 
@@ -584,7 +584,7 @@ function VerifyContent() {
             <button
               onClick={fetchChallenge}
               disabled={challengeLoading}
-              className="text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50"
+              className="text-sm font-medium text-green-700 hover:text-green-700 disabled:opacity-50"
             >
               Get a new code
             </button>
@@ -640,7 +640,7 @@ function VerifyContent() {
                 <button
                   onClick={handleSubmit}
                   disabled={isVerifying}
-                  className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50"
+                  className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50"
                 >
                   {isVerifying ? (
                     <span className="flex items-center justify-center">
@@ -684,7 +684,7 @@ function VerifyContent() {
               <button
                 onClick={() => setCameraOpen(true)}
                 disabled={!challenge || verifyUsage?.remaining === 0}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50 mb-3"
+                className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50 mb-3"
               >
                 Take a Photo with the Camera
               </button>
@@ -721,7 +721,7 @@ function VerifyContent() {
           <button
             onClick={handleChooseAgain}
             disabled={choosingAgain}
-            className="w-full text-sm font-medium text-green-600 hover:text-green-700 disabled:opacity-50 py-1"
+            className="w-full text-sm font-medium text-green-700 hover:text-green-700 disabled:opacity-50 py-1"
           >
             {choosingAgain ? 'Loading ideas…' : 'Choose a different DIY'}
           </button>

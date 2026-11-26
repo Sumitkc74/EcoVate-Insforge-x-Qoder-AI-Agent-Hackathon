@@ -12,7 +12,7 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm">
         <div className="max-w-md mx-auto px-4 py-4">
-          <a href="/login" className="text-sm font-medium text-green-600 hover:text-green-700">
+          <a href="/login" className="text-sm font-medium text-green-700 hover:text-green-700">
             &larr; Back to sign in
           </a>
         </div>

@@ -266,7 +266,7 @@ export default function DashboardPage() {
             className="w-full bg-white rounded-2xl shadow-lg p-6 text-left hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-green-500"
           >
             <div className="flex items-center space-x-4">
-              <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center">
+              <div className="w-14 h-14 bg-gradient-to-br from-green-700 to-emerald-700 rounded-2xl flex items-center justify-center">
                 <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -325,7 +325,7 @@ export default function DashboardPage() {
             <button
               onClick={handleMigrateGuest}
               disabled={isMigrating}
-              className="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-50"
+              className="w-full bg-green-700 hover:bg-green-800 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-50"
             >
               {isMigrating ? 'Moving…' : 'Move guest history to this account'}
             </button>
@@ -333,14 +333,14 @@ export default function DashboardPage() {
           </div>
         )}
         {migrated && (
-          <p className="text-sm text-green-600 text-center">Guest history moved to this account.</p>
+          <p className="text-sm text-green-700 text-center">Guest history moved to this account.</p>
         )}
 
         {/* Score Card */}
-        <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-lg p-6 text-white text-center">
-          <p className="text-green-100 text-sm mb-1">Your Sustainability Score</p>
+        <div className="bg-gradient-to-r from-green-700 to-emerald-700 rounded-2xl shadow-lg p-6 text-white text-center">
+          <p className="text-white text-sm mb-1">Your Sustainability Score</p>
           <p className="text-5xl font-bold">{user?.sustainability_score || 0}</p>
-          <p className="text-green-100 text-sm mt-2">points earned</p>
+          <p className="text-white text-sm mt-2">points earned</p>
         </div>
 
         {/* Continue where you left off */}
@@ -395,7 +395,7 @@ export default function DashboardPage() {
           {myEntry && (
             <p className="text-sm text-gray-600 -mt-2 mb-3">
               You are <span className="font-semibold text-gray-900">#{myEntry.rank}</span> with{' '}
-              <span className="font-semibold text-green-600">{myEntry.sustainability_score} pts</span>
+              <span className="font-semibold text-green-700">{myEntry.sustainability_score} pts</span>
             </p>
           )}
           {leaderboardError ? (
@@ -435,7 +435,7 @@ export default function DashboardPage() {
                     {entry.avatar ? (
                       <img src={entry.avatar} alt={entry.name || ''} className="w-8 h-8 rounded-full" />
                     ) : (
-                      <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
+                      <div className="w-8 h-8 bg-gradient-to-br from-green-700 to-emerald-700 rounded-full flex items-center justify-center">
                         <span className="text-white text-sm font-bold">
                           {(entry.name || 'E')[0].toUpperCase()}
                         </span>
@@ -447,14 +447,14 @@ export default function DashboardPage() {
                         <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">You</span>
                       )}
                     </span>
-                    <span className="text-sm font-bold text-green-600">{entry.sustainability_score} pts</span>
+                    <span className="text-sm font-bold text-green-700">{entry.sustainability_score} pts</span>
                   </li>
                 );
               })}
             </ol>
               </div>
               {leaderboard.length > 5 && (
-                <p className="text-xs text-gray-400 mt-3 text-center">Scroll for more</p>
+                <p className="text-xs text-gray-500 mt-3 text-center">Scroll for more</p>
               )}
             </div>
           )}

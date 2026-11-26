@@ -700,7 +700,7 @@ export default function ScanPage() {
                   <p className="text-sm font-semibold text-amber-800">These details don&apos;t seem to match the photo.</p>
                   <p className="text-sm text-amber-700 mt-1">{detailMismatch.message}</p>
                   {detailMismatch.reason && (
-                    <p className="text-xs text-amber-600 mt-1">{detailMismatch.reason}</p>
+                    <p className="text-xs text-amber-700 mt-1">{detailMismatch.reason}</p>
                   )}
                   <div className="flex space-x-2 mt-3">
                     <button
@@ -749,40 +749,52 @@ export default function ScanPage() {
               </div>
               <div className="space-y-3 border border-gray-200 rounded-xl p-3">
                 <p className="text-sm font-semibold text-gray-900">Check or edit the details</p>
-                <input
-                  type="text"
-                  value={productName}
-                  onChange={(e) => { manualEditedRef.current.add('product'); setProductName(e.target.value); setDetailMismatch(null); }}
-                  placeholder="Product name, e.g. Water bottle"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
-                />
-                <select
-                  value={packagingType}
-                  onChange={(e) => { manualEditedRef.current.add('packaging'); setPackagingType(e.target.value); setDetailMismatch(null); }}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
-                >
-                  <option value="">Packaging type</option>
-                  <option value="bottle">Bottle</option>
-                  <option value="box">Box</option>
-                  <option value="bag">Bag</option>
-                  <option value="jar">Jar</option>
-                  <option value="can">Can</option>
-                  <option value="wrapper">Wrapper</option>
-                  <option value="container">Container</option>
-                  <option value="carton">Carton</option>
+                <div>
+                  <label htmlFor="product-name" className="block text-xs font-semibold text-gray-700 mb-1">Product name</label>
+                  <input
+                    id="product-name"
+                    type="text"
+                    value={productName}
+                    onChange={(e) => { manualEditedRef.current.add('product'); setProductName(e.target.value); setDetailMismatch(null); }}
+                    placeholder="Product name, e.g. Water bottle"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="packaging-type" className="block text-xs font-semibold text-gray-700 mb-1">Packaging type</label>
+                  <select
+                    id="packaging-type"
+                    value={packagingType}
+                    onChange={(e) => { manualEditedRef.current.add('packaging'); setPackagingType(e.target.value); setDetailMismatch(null); }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
+                  >
+                    <option value="">Packaging type</option>
+                    <option value="bottle">Bottle</option>
+                    <option value="box">Box</option>
+                    <option value="bag">Bag</option>
+                    <option value="jar">Jar</option>
+                    <option value="can">Can</option>
+                    <option value="wrapper">Wrapper</option>
+                    <option value="container">Container</option>
+                    <option value="carton">Carton</option>
                 </select>
-                <input
-                  type="text"
-                  value={materialsText}
-                  onChange={(e) => { manualEditedRef.current.add('materials'); setMaterialsText(e.target.value); setDetailMismatch(null); }}
-                  placeholder="Materials, comma separated, e.g. plastic, paper"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
-                />
+                </div>
+                <div>
+                  <label htmlFor="materials" className="block text-xs font-semibold text-gray-700 mb-1">Materials</label>
+                  <input
+                    id="materials"
+                    type="text"
+                    value={materialsText}
+                    onChange={(e) => { manualEditedRef.current.add('materials'); setMaterialsText(e.target.value); setDetailMismatch(null); }}
+                    placeholder="Materials, comma separated, e.g. plastic, paper"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-600"
+                  />
+                </div>
                 <p className="text-xs text-gray-700">With a product name and packaging type filled in, the scan skips AI vision and still gives impact and DIY ideas.</p>
               </div>
               <button
                 onClick={handleScan}
-                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
+                className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
               >
                 Analyze Product
               </button>
@@ -811,7 +823,7 @@ export default function ScanPage() {
             <button
               onClick={startCamera}
               disabled={cameraLoading}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-4 px-6 rounded-2xl transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-3"
+              className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-4 px-6 rounded-2xl transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-3"
             >
               {cameraLoading ? (
                 <>

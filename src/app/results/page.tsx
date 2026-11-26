@@ -166,7 +166,7 @@ function ResultsContent() {
           <p className="text-gray-600 mb-4">No scan data found</p>
           <button
             onClick={() => router.push('/scan')}
-            className="bg-green-500 text-white px-4 py-2 rounded-lg"
+            className="bg-green-700 text-white px-4 py-2 rounded-lg"
           >
             Go Back to Scan
           </button>
@@ -213,62 +213,74 @@ function ResultsContent() {
         {imageUploadError && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
             <p className="text-sm font-semibold text-amber-700">Your photo could not be uploaded, so it won&apos;t show in History.</p>
-            <p className="text-sm text-amber-600 mt-1">{imageUploadError}</p>
+            <p className="text-sm text-amber-700 mt-1">{imageUploadError}</p>
           </div>
         )}
         {detailWarning && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
             <p className="text-sm font-semibold text-amber-700">Double-check the details for this scan.</p>
-            <p className="text-sm text-amber-600 mt-1">{detailWarning}</p>
+            <p className="text-sm text-amber-700 mt-1">{detailWarning}</p>
           </div>
         )}
         {visionFallback && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
             <p className="text-sm font-semibold text-amber-700">This scan used the on-device reading.</p>
-            <p className="text-sm text-amber-600 mt-1">{visionFallback}</p>
+            <p className="text-sm text-amber-700 mt-1">{visionFallback}</p>
           </div>
         )}
         {scanErrors.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
             <p className="text-sm font-semibold text-amber-700">Some parts of this scan didn&apos;t work — the figures below are partial.</p>
             {scanErrors.map((err, idx) => (
-              <p key={idx} className="text-sm text-amber-600 mt-1">{err}</p>
+              <p key={idx} className="text-sm text-amber-700 mt-1">{err}</p>
             ))}
           </div>
         )}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-1">{scanData.product_name}</h2>
+          <h1 className="text-xl font-bold text-gray-900 mb-1">{scanData.product_name}</h1>
           <p className="text-gray-500 capitalize">{scanData.packaging_type}</p>
         </div>
 
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-gray-200" role="tablist" aria-label="Scan results">
             <button
+              id="tab-details"
+              role="tab"
+              aria-selected={activeTab === 'details'}
+              aria-controls="panel-details"
               onClick={() => setActiveTab('details')}
               className={`flex-1 py-4 px-4 text-sm font-medium transition-colors ${
                 activeTab === 'details'
-                  ? 'text-green-600 border-b-2 border-green-600 bg-green-50'
+                  ? 'text-green-700 border-b-2 border-green-700 bg-green-50'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               Details
             </button>
             <button
+              id="tab-impact"
+              role="tab"
+              aria-selected={activeTab === 'impact'}
+              aria-controls="panel-impact"
               onClick={() => setActiveTab('impact')}
               className={`flex-1 py-4 px-4 text-sm font-medium transition-colors ${
                 activeTab === 'impact'
-                  ? 'text-green-600 border-b-2 border-green-600 bg-green-50'
+                  ? 'text-green-700 border-b-2 border-green-700 bg-green-50'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               Impact
             </button>
             <button
+              id="tab-diy"
+              role="tab"
+              aria-selected={activeTab === 'diy'}
+              aria-controls="panel-diy"
               onClick={() => setActiveTab('diy')}
               className={`flex-1 py-4 px-4 text-sm font-medium transition-colors ${
                 activeTab === 'diy'
-                  ? 'text-green-600 border-b-2 border-green-600 bg-green-50'
+                  ? 'text-green-700 border-b-2 border-green-700 bg-green-50'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -279,7 +291,7 @@ function ResultsContent() {
           {/* Tab Content */}
           <div className="p-6">
             {activeTab === 'details' && (
-              <div className="space-y-6">
+              <div className="space-y-6" role="tabpanel" id="panel-details" aria-labelledby="tab-details">
                 {/* Materials */}
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-3 flex items-center">
@@ -332,7 +344,7 @@ function ResultsContent() {
             )}
 
             {activeTab === 'impact' && (
-              <div className="space-y-6">
+              <div className="space-y-6" role="tabpanel" id="panel-impact" aria-labelledby="tab-impact">
                 {/* Carbon Footprint */}
                 <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
@@ -348,12 +360,12 @@ function ResultsContent() {
                   <div className="relative pt-1">
                     <div className="flex mb-2 items-center justify-between">
                       <div>
-                        <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-green-600 bg-green-200">
+                        <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-green-800 bg-green-200">
                           Score
                         </span>
                       </div>
                       <div className="text-right">
-                        <span className="text-2xl font-bold text-green-600">{scanData.recyclability_score == null ? '—' : `${scanData.recyclability_score}%`}</span>
+                        <span className="text-2xl font-bold text-green-700">{scanData.recyclability_score == null ? '—' : `${scanData.recyclability_score}%`}</span>
                       </div>
                     </div>
                     <div className="overflow-hidden h-4 mb-4 text-xs flex rounded-full bg-gray-200">
@@ -392,21 +404,23 @@ function ResultsContent() {
             )}
 
             {activeTab === 'diy' && (
-              <div className="space-y-4">
+              <div className="space-y-4" role="tabpanel" id="panel-diy" aria-labelledby="tab-diy">
                 <p className="text-gray-600 mb-4">Choose a project to upcycle this packaging:</p>
                 
                 {scanData.diy_ideas?.map((idea, idx) => (
-                  <div
+                  <button
+                    type="button"
                     key={idx}
                     onClick={() => handleDIYSelect(idea)}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                    aria-pressed={selectedDIY?.title === idea.title}
+                    className={`w-full text-left border-2 rounded-xl p-4 transition-all ${
                       selectedDIY?.title === idea.title
                         ? 'border-green-500 bg-green-50'
                         : 'border-gray-200 hover:border-green-300'
                     }`}
                   >
-                    <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-bold text-gray-900">{idea.title}</h4>
+                    <span className="flex items-start justify-between mb-2">
+                      <span className="font-bold text-gray-900">{idea.title}</span>
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-medium ${
                           idea.difficulty === 'easy'
@@ -418,14 +432,14 @@ function ResultsContent() {
                       >
                         {idea.difficulty}
                       </span>
-                    </div>
-                    
-                    <p className="text-sm text-gray-600 mb-3">
+                    </span>
+
+                    <span className="block text-sm text-gray-600 mb-3">
                       <span className="font-medium">Materials needed:</span> {idea.materials_needed.join(', ')}
-                    </p>
-                    
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-green-600 font-medium">
+                    </span>
+
+                    <span className="flex items-center justify-between">
+                      <span className="text-sm text-green-700 font-medium">
                         Save {idea.estimated_co2_saved_kg} kg CO2
                       </span>
                       {selectedDIY?.title === idea.title && (
@@ -433,8 +447,8 @@ function ResultsContent() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
-                    </div>
-                  </div>
+                    </span>
+                  </button>
                 ))}
 
                 {!scanId.startsWith('temp_') && (scanData.diy_ideas?.length || 0) > 0 && (
@@ -456,7 +470,7 @@ function ResultsContent() {
                   <div className="space-y-2 mt-4">
                     <button
                       onClick={handleStartProject}
-                      className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md"
+                      className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md"
                     >
                       I&apos;ll do this! Start Project
                     </button>

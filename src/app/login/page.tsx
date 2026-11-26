@@ -65,7 +65,7 @@ export default function LoginPage() {
       <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 md:p-10">
         {/* Logo and Title */}
         <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+          <div className="w-20 h-20 bg-gradient-to-br from-green-700 to-emerald-700 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
@@ -78,7 +78,7 @@ export default function LoginPage() {
         <div className="space-y-4 mb-8">
           <div className="flex items-start space-x-3">
             <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -103,7 +103,7 @@ export default function LoginPage() {
 
           <div className="flex items-start space-x-3">
             <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-              <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
               </svg>
             </div>
@@ -157,12 +157,12 @@ export default function LoginPage() {
         {/* Continue without an account */}
         <div className="flex items-center gap-3 my-6">
           <div className="h-px bg-gray-200 flex-1" />
-          <span className="text-xs text-gray-400 font-medium">or</span>
+          <span className="text-xs text-gray-500 font-medium">or</span>
           <div className="h-px bg-gray-200 flex-1" />
         </div>
 
         <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="guest-name">
-          Name for the leaderboard <span className="font-normal text-gray-400">(optional)</span>
+          Name for the leaderboard <span className="font-normal text-gray-500">(optional)</span>
         </label>
         <input
           id="guest-name"
@@ -171,12 +171,12 @@ export default function LoginPage() {
           onChange={(e) => setGuestName(e.target.value)}
           maxLength={40}
           placeholder="e.g. Alex"
-          className="w-full border-2 border-gray-200 rounded-xl py-3 px-4 text-gray-900 placeholder-gray-400 focus:border-green-500 focus:outline-none mb-3"
+          className="w-full border-2 border-gray-200 rounded-xl py-3 px-4 text-gray-900 placeholder-gray-400 focus:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-700 mb-3"
         />
         <button
           onClick={handleGuestSignIn}
           disabled={isGuestLoading}
-          className="w-full flex items-center justify-center space-x-3 bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center space-x-3 bg-green-700 hover:bg-green-800 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGuestLoading ? (
             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -190,9 +190,9 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-xs text-gray-500">
           By signing in, you agree to our{' '}
-          <a href="/terms" className="text-green-600 hover:text-green-700 underline">Terms of Service</a>{' '}
+          <a href="/terms" className="text-green-700 hover:text-green-700 underline">Terms of Service</a>{' '}
           and{' '}
-          <a href="/privacy" className="text-green-600 hover:text-green-700 underline">Privacy Policy</a>
+          <a href="/privacy" className="text-green-700 hover:text-green-700 underline">Privacy Policy</a>
         </p>
       </div>
     </div>

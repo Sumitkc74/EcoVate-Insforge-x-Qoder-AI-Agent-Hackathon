@@ -6,13 +6,13 @@
  */
 
 export const deleteButtonClass =
-  'inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors';
+  'inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors';
 export const primaryButtonClass =
-  'inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-lg bg-green-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-green-700 transition-colors';
+  'inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-lg bg-green-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-green-800 transition-colors';
 export const secondaryButtonClass =
   'inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50';
 export const loadMoreButtonClass =
-  'w-full inline-flex items-center justify-center gap-1 rounded-xl border border-gray-200 bg-white py-3 text-sm font-semibold text-green-600 hover:bg-green-50 transition-colors disabled:opacity-50';
+  'w-full inline-flex items-center justify-center gap-1 rounded-xl border border-gray-200 bg-white py-3 text-sm font-semibold text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50';
 
 export const trashIcon = (
   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

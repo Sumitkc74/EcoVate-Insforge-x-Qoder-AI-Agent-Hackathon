@@ -269,7 +269,7 @@ export default function HistoryPage() {
           <p className="text-gray-600 mb-6">{loadError}</p>
           <button
             onClick={fetchHistory}
-            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+            className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
           >
             Try again
           </button>
@@ -422,7 +422,7 @@ export default function HistoryPage() {
           </div>
           <button
             onClick={fetchHistory}
-            className="p-2 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+            className="p-2 rounded-lg text-gray-500 hover:text-green-700 hover:bg-green-50 transition-colors"
             title="Refresh"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -434,32 +434,44 @@ export default function HistoryPage() {
 
       {/* Tabs */}
       <div className="max-w-md mx-auto px-4 py-4">
-        <div className="flex bg-white rounded-xl p-1 shadow">
+        <div className="flex bg-white rounded-xl p-1 shadow" role="tablist" aria-label="History">
           <button
+            id="tab-projects"
+            role="tab"
+            aria-selected={activeTab === 'projects'}
+            aria-controls="panel-projects"
             onClick={() => setActiveTab('projects')}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
               activeTab === 'projects'
-                ? 'bg-green-500 text-white'
+                ? 'bg-green-700 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
             Projects ({totals.totalProjects})
           </button>
           <button
+            id="tab-pending"
+            role="tab"
+            aria-selected={activeTab === 'pending'}
+            aria-controls="panel-pending"
             onClick={() => setActiveTab('pending')}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
               activeTab === 'pending'
-                ? 'bg-green-500 text-white'
+                ? 'bg-green-700 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
             Pending ({totals.totalPending})
           </button>
           <button
+            id="tab-scans"
+            role="tab"
+            aria-selected={activeTab === 'scans'}
+            aria-controls="panel-scans"
             onClick={() => setActiveTab('scans')}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
               activeTab === 'scans'
-                ? 'bg-green-500 text-white'
+                ? 'bg-green-700 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
@@ -491,12 +503,12 @@ export default function HistoryPage() {
       {/* Content */}
       <main className="max-w-md mx-auto px-4">
         {/* Summary */}
-        <div className="mb-6 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 text-white">
+        <div className="mb-6 bg-gradient-to-r from-green-700 to-emerald-700 rounded-xl p-4 text-white">
           <div className="flex items-center justify-between">
             <span>Total Impact Score</span>
             <span className="text-2xl font-bold">{data?.totalImpact || 0}</span>
           </div>
-          <p className="text-green-100 text-sm mt-1">From {completedProjects.length} approved projects</p>
+          <p className="text-white text-sm mt-1">From {completedProjects.length} approved projects</p>
         </div>
         {deleteError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -520,7 +532,7 @@ export default function HistoryPage() {
           </div>
         )}
         {activeTab === 'scans' && (
-          <div className="space-y-3">
+          <div className="space-y-3" role="tabpanel" id="panel-scans" aria-labelledby="tab-scans">
             {(data?.scans.length || 0) > 0 && (
               <div className="flex justify-end">
                 <button
@@ -543,7 +555,7 @@ export default function HistoryPage() {
                 <p className="text-gray-500">No scans yet</p>
                 <button
                   onClick={() => router.push('/scan')}
-                  className="mt-4 text-green-600 font-medium"
+                  className="mt-4 text-green-700 font-medium"
                 >
                   Scan your first product →
                 </button>
@@ -604,11 +616,11 @@ export default function HistoryPage() {
                         )}
                       </div>
                       {!scan.image_url && (
-                        <p className="text-xs text-gray-400 mt-2">Photo wasn&apos;t saved with this scan.</p>
+                        <p className="text-xs text-gray-500 mt-2">Photo wasn&apos;t saved with this scan.</p>
                       )}
                     </div>
                     <div className="flex flex-col items-end space-y-2 shrink-0">
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {new Date(scan.created_at).toLocaleDateString()}
                       </span>
                       <button
@@ -690,7 +702,7 @@ export default function HistoryPage() {
         )}
 
         {activeTab === 'projects' && (
-          <div className="space-y-3">
+          <div className="space-y-3" role="tabpanel" id="panel-projects" aria-labelledby="tab-projects">
             {allProjects.length > 0 && (
               <div className="flex justify-end">
                 <button
@@ -711,10 +723,10 @@ export default function HistoryPage() {
                   </svg>
                 </div>
                 <p className="text-gray-500">No projects yet</p>
-                <p className="text-gray-400 text-sm mt-2">Complete a DIY project to see it here</p>
+                <p className="text-gray-500 text-sm mt-2">Complete a DIY project to see it here</p>
                 <button
                   onClick={() => router.push('/scan')}
-                  className="mt-4 text-green-600 font-medium"
+                  className="mt-4 text-green-700 font-medium"
                 >
                   Start your first project →
                 </button>
@@ -761,7 +773,7 @@ export default function HistoryPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                           ) : (
-                            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-6 h-6 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
                           )}
@@ -789,7 +801,7 @@ export default function HistoryPage() {
                           </p>
                         )}
                         {!action.image_url && (
-                          <p className="text-xs text-gray-400 mt-1">Photo wasn&apos;t saved with this project.</p>
+                          <p className="text-xs text-gray-500 mt-1">Photo wasn&apos;t saved with this project.</p>
                         )}
                         {isFailed && (
                           <p className="text-xs text-red-600 mt-1">
@@ -799,7 +811,7 @@ export default function HistoryPage() {
                           </p>
                         )}
                         {isSelected && (
-                          <p className="text-xs text-amber-600 mt-1">
+                          <p className="text-xs text-amber-700 mt-1">
                             DIY chosen — upload a photo to complete it
                           </p>
                         )}
@@ -808,7 +820,7 @@ export default function HistoryPage() {
                         )}
                       </div>
                       {!isSelected && !isFailed && action.impact_score > 0 && (
-                        <span className="text-green-600 font-bold">+{action.impact_score} pts</span>
+                        <span className="text-green-700 font-bold">+{action.impact_score} pts</span>
                       )}
                     </div>
                     <div className="flex items-center justify-between mt-3">
@@ -872,11 +884,11 @@ export default function HistoryPage() {
         )}
 
         {activeTab === 'pending' && (
-          <div className="space-y-3">
+          <div className="space-y-3" role="tabpanel" id="panel-pending" aria-labelledby="tab-pending">
             {pendingProjects.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
                 <p className="text-gray-500">No pending projects</p>
-                <p className="text-gray-400 text-sm mt-2">Verifications waiting for a confident result show up here until they complete</p>
+                <p className="text-gray-500 text-sm mt-2">Verifications waiting for a confident result show up here until they complete</p>
               </div>
             ) : (
               pendingProjects.map((action) => {
@@ -905,7 +917,7 @@ export default function HistoryPage() {
                         From scan: {linkedScan.product_name}
                       </p>
                     )}
-                    <p className="text-xs text-amber-600 mt-1">
+                    <p className="text-xs text-amber-700 mt-1">
                       {action.feedback
                         ? action.feedback
                         : 'Awaiting verification (need 85%+ confidence)'}

@@ -173,7 +173,7 @@ export default function AuthCallbackPage() {
             {showRetry ? (
               <button
                 onClick={() => signInWithGoogle()}
-                className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700"
+                className="bg-green-700 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-800"
               >
                 Try signing in again
               </button>

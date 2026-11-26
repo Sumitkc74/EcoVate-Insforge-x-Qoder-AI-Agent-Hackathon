@@ -6,6 +6,8 @@
  * user seeing what it takes with it.
  */
 
+import { useModalFocus } from '@/lib/use-modal-focus';
+
 type ConfirmModalProps = {
   title: string;
   lines: string[];
@@ -23,12 +25,17 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  // The dialog mounts when it opens: move focus in, trap Tab,
+  // close on Escape, return focus to the trigger on close.
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onCancel);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onCancel}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-4"
         onClick={(e) => e.stopPropagation()}
         role="alertdialog"

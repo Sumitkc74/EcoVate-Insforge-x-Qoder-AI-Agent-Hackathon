@@ -17,6 +17,7 @@ import { signOutAll, authedFetch, readApiJson, updateAnonSessionName } from '@/l
 import { signInWithGoogle } from '@/lib/auth';
 import { downscaleImageFile } from '@/lib/image-resize';
 import ConfirmModal from '@/components/ConfirmModal';
+import { useModalFocus } from '@/lib/use-modal-focus';
 
 export interface MenuUser {
   name: string | null;
@@ -55,6 +56,11 @@ export default function UserMenu({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Guests confirm sign-out first: it deletes the guest account.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  // The sign-out warning is a modal: focus goes in on open, Tab
+  // stays inside, Escape closes it, focus returns on close.
+  const signOutDialogRef = useModalFocus<HTMLDivElement>(confirmingSignOut, () =>
+    setConfirmingSignOut(false)
+  );
   // Values saved in this menu, until the parent re-renders with them.
   const [nameOverride, setNameOverride] = useState<string | null>(null);
   const [avatarOverride, setAvatarOverride] = useState<string | null | undefined>(undefined);
@@ -188,7 +194,7 @@ export default function UserMenu({
         {displayAvatar ? (
           <img src={displayAvatar} alt="" className="w-8 h-8 rounded-full object-cover" />
         ) : (
-          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
+          <div className="w-8 h-8 bg-gradient-to-br from-green-700 to-emerald-700 rounded-full flex items-center justify-center">
             <span className="text-white text-sm font-bold">{displayName[0].toUpperCase()}</span>
           </div>
         )}
@@ -215,14 +221,14 @@ export default function UserMenu({
               {user.email && <p className="text-xs text-gray-500 truncate">{user.email}</p>}
               {isGuest && <p className="text-xs text-gray-500">Guest account — this browser only</p>}
             </div>
-            {saved && <p className="px-4 pt-2 text-sm text-green-600">Saved.</p>}
+            {saved && <p className="px-4 pt-2 text-sm text-green-700">Saved.</p>}
             {editing ? (
               <div className="px-4 py-3 space-y-3">
                 <div className="flex items-center gap-3">
                   {previewSrc ? (
                     <img src={previewSrc} alt="" className="w-12 h-12 rounded-full object-cover" />
                   ) : (
-                    <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center">
+                    <div className="w-12 h-12 bg-gradient-to-br from-green-700 to-emerald-700 rounded-full flex items-center justify-center">
                       <span className="text-white text-lg font-bold">{displayName[0].toUpperCase()}</span>
                     </div>
                   )}
@@ -273,7 +279,7 @@ export default function UserMenu({
                   <button
                     onClick={handleSaveProfile}
                     disabled={isSaving}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors disabled:opacity-50"
+                    className="flex-1 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold py-2 px-3 rounded-xl transition-colors disabled:opacity-50"
                   >
                     {isSaving ? 'Saving…' : 'Save'}
                   </button>
@@ -337,6 +343,8 @@ export default function UserMenu({
                 onClick={() => setConfirmingSignOut(false)}
               >
                 <div
+                  ref={signOutDialogRef}
+                  tabIndex={-1}
                   className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-4"
                   onClick={(e) => e.stopPropagation()}
                   role="alertdialog"
