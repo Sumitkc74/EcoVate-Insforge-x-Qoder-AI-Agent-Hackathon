@@ -48,6 +48,12 @@ create table if not exists public.scans (
   estimated_co2_saved numeric(10,4),
   label_text text,
   diy_ideas jsonb default '[]'::jsonb,
+  -- Set only when the AI analysis failed with no data (the scan
+  -- route's 500): the plain error message. A row with this set is a
+  -- failed scan — History shows it with a Retry action, the
+  -- dashboard excludes it, and DIY/verify/actions refuse it until
+  -- a retry clears it in place.
+  scan_error text,
   created_at timestamptz default now(),
   constraint scans_recyclability_score_check
     check ((recyclability_score >= 0) and (recyclability_score <= 100))

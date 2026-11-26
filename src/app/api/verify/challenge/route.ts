@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     // else's project.
     const { data: scan } = await serverDb
       .from('scans')
-      .select('user_id')
+      .select('*')
       .eq('id', scanId)
       .single();
     if (!scan) {
@@ -57,6 +57,15 @@ export async function POST(request: NextRequest) {
     }
     if ((scan as { user_id: string }).user_id !== userId) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
+    }
+    // No code for a scan that was never analysed: a project cannot
+    // be verified against a failed scan. (See /api/verify for why
+    // '*' is safe before the scan_error column exists.)
+    if ((scan as { scan_error?: string | null }).scan_error) {
+      return NextResponse.json(
+        { error: 'This scan failed, so it cannot be verified. Retry the scan from your History first.' },
+        { status: 400 },
+      );
     }
 
     // An already-awarded project gets no new code: one award per

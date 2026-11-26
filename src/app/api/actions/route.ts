@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
     const { data: scan } = await serverDb
       .from('scans')
-      .select('user_id')
+      .select('*')
       .eq('id', scanId)
       .single();
     if (!scan) {
@@ -45,6 +45,16 @@ export async function POST(request: NextRequest) {
     }
     if ((scan as { user_id: string }).user_id !== userId) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
+    }
+    // No DIY choice on a scan that was never analysed: choosing
+    // one would strand a project on a failed scan that verify
+    // refuses. (See /api/verify for why '*' is safe before the
+    // scan_error column exists.)
+    if ((scan as { scan_error?: string | null }).scan_error) {
+      return NextResponse.json(
+        { error: 'This scan failed, so no DIY idea can be chosen for it. Retry the scan from your History first.' },
+        { status: 400 },
+      );
     }
 
     // A diy_selected row records the chosen idea so it can be resumed

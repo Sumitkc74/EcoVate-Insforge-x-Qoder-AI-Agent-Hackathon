@@ -27,6 +27,11 @@ export default function ScanPage() {
   // the photo is still here, so the preview offers a Retry button
   // that re-runs the analysis on the same photo — no re-upload.
   const [scanFailed, setScanFailed] = useState(false);
+  // The History row the server recorded for a failed analysis
+  // (only on a server-side failure, not a timeout): the scan page
+  // links to it so the user can retry from History later, after
+  // leaving this page.
+  const [failedScanId, setFailedScanId] = useState<string | null>(null);
   // Detail mismatch: set when the AI recheck is confident the
   // hand-entered details don't match the photo. The user can then
   // correct the details below or retake the photo.
@@ -83,6 +88,7 @@ export default function ScanPage() {
       manualEditedRef.current.clear();
       setError(null);
       setScanFailed(false);
+      setFailedScanId(null);
       setOcrText('');
         setImageCheck('');
         setMaterialGuess('');
@@ -179,6 +185,7 @@ export default function ScanPage() {
             setPreviewImage(URL.createObjectURL(file));
             manualEditedRef.current.clear();
             setScanFailed(false);
+            setFailedScanId(null);
             setOcrText('');
                     setImageCheck('');
                     setMaterialGuess('');
@@ -469,6 +476,7 @@ export default function ScanPage() {
     setError(null);
     setDetailMismatch(null);
     setScanFailed(false);
+    setFailedScanId(null);
 
     // The scan route runs at most 60s (maxDuration): time the
     // client out first, at 55s, so a slow analysis becomes a plain
@@ -537,6 +545,11 @@ export default function ScanPage() {
           setIsScanning(false);
           return;
         }
+        // A server-side failure is recorded in History: keep its id
+        // so the error box below can link to it.
+        if (typeof result.failedScanId === 'string' && result.failedScanId) {
+          setFailedScanId(result.failedScanId);
+        }
         throw new Error(result.error || (result.errors ? result.errors.join('; ') : 'Scan failed'));
       }
 
@@ -594,6 +607,7 @@ export default function ScanPage() {
     setSelectedFile(null);
     setError(null);
     setScanFailed(false);
+    setFailedScanId(null);
     setDetailMismatch(null);
     setProductName('');
     setPackagingType('');
@@ -736,6 +750,15 @@ export default function ScanPage() {
                     >
                       {retryIcon}
                       Try again
+                    </button>
+                  )}
+                  {failedScanId && (
+                    <button
+                      type="button"
+                      onClick={() => router.push('/history')}
+                      className="mt-2 w-full text-sm font-semibold text-red-600 underline"
+                    >
+                      This attempt is saved in your History — view it there
                     </button>
                   )}
                 </div>

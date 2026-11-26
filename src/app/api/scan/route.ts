@@ -294,13 +294,65 @@ export async function POST(request: NextRequest) {
       // A scan that returned results (including partial data with
       // warnings) keeps its row and still counts.
       await refundAttempt(claim.attemptId, userId);
+      // The failed attempt is recorded, not dropped: a scan that
+      // fails here used to leave nothing behind — no History row,
+      // no photo, no error — so the user could not tell what
+      // happened to it. The row carries scan_error (the plain
+      // message) and the already-uploaded photo, and History shows
+      // it as a failed scan with a Retry action. No points, no DIY
+      // ideas, no CO2 figures: nothing is invented for a scan that
+      // never ran. The upload and the profile upsert ran in
+      // parallel with the coordinator, so both are done by now in
+      // the common case; await them here so the row can carry the
+      // photo (and satisfy the users foreign key).
+      const failedScanError = coordinatorResult.errors.join('; ') || 'Scan failed';
+      const [{ imageUrl: failedImageUrl }, failedProfileError] = await Promise.all([
+        uploadPromise,
+        profilePromise,
+      ]);
+      let failedScanId: string | null = null;
+      try {
+        const failedScanData: Record<string, unknown> = {
+          user_id: userId,
+          // product_name is NOT NULL: keep the name the user typed
+          // when the scan ran on manual details, otherwise a plain
+          // marker (History renders the failed card from scan_error,
+          // not from this value).
+          product_name: manual.product_name?.trim() || 'Scan failed',
+          materials: manualMaterials,
+          carbon_footprint: null,
+          recyclability_score: null,
+          image_url: failedImageUrl,
+          packaging_type: manual.packaging_type?.trim() || null,
+          label_text: manual.label_text?.trim() || null,
+          diy_ideas: [],
+          scan_error: failedScanError,
+        };
+        const { data: failedScan, error: failedInsertError } = await serverDb
+          .from('scans')
+          .insert([failedScanData])
+          .select('id')
+          .single();
+        if (failedInsertError) throw failedInsertError;
+        failedScanId = (failedScan as { id?: string } | null)?.id ?? null;
+      } catch (failedInsertErr) {
+        // The scan_error column needs the one-time SQL adding it;
+        // until it is run, the insert fails (42703) and the failure
+        // is reported exactly as before — no record, no second
+        // error for the user. The real reason stays in the log.
+        console.error('Failed scan could not be recorded in History:', failedInsertErr);
+      }
+      if (failedProfileError) console.error('Profile upsert error:', failedProfileError);
       return NextResponse.json({
         success: false,
         // Surface the real reason instead of a generic failure: the
         // frontend previously showed only "Scan failed" for every 500.
-        error: coordinatorResult.errors.join('; ') || 'Scan failed',
+        error: failedScanError,
         errors: coordinatorResult.errors,
         executionTimeMs: coordinatorResult.executionTimeMs,
+        // The History row for this attempt, when one was recorded:
+        // the scan page links to it so the user can retry from there.
+        failedScanId,
       }, { status: 500 });
     }
 

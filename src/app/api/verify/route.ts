@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     // scan at all. /api/actions already 404s on a missing scan.
     const { data: scan } = await serverDb
       .from('scans')
-      .select('user_id, image_url')
+      .select('*')
       .eq('id', scanId)
       .single();
     if (!scan) {
@@ -146,6 +146,17 @@ export async function POST(request: NextRequest) {
     }
     if ((scan as { user_id: string }).user_id !== userId) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
+    }
+    // A failed scan was never analysed, so there is no packaging
+    // to match a project against and no points to award from it:
+    // retry the scan first. ('*' above, not a column list, so
+    // this stays safe before the scan_error column exists — the
+    // field is simply undefined and the check is skipped.)
+    if ((scan as { scan_error?: string | null }).scan_error) {
+      return NextResponse.json(
+        { error: 'This scan failed, so it cannot be verified. Retry the scan from your History first.' },
+        { status: 400 },
+      );
     }
 
     // Convert image to base64 for AI processing

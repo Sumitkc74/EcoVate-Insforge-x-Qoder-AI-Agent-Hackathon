@@ -47,18 +47,36 @@ async function getDashboardData(userId: string) {
   };
 
   const fetchScans = async (): Promise<{ rows: unknown[]; count: number | null; error: string | null }> => {
-    try {
-      const { data, error, count } = await serverDb
+    // Failed scans (scan_error set) are History records with a
+    // Retry action, not completed scans: they must not inflate the
+    // dashboard's scan count, the water/plastic estimates derived
+    // from it, or the "continue" list (which would offer Add DIY
+    // on a scan that has no results). The filter needs the
+    // one-time SQL adding scan_error; until it is run, the
+    // filtered query errors and the unfiltered query below runs
+    // instead, so the dashboard behaves exactly as before.
+    const query = (failed: boolean) => {
+      let q = serverDb
         .from('scans')
         .select('*', { count: 'exact' })
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(10);
-      if (error) {
-        console.error('Scans fetch error:', error);
-        return { rows: [], count: null, error: error.message };
+      if (failed) q = q.is('scan_error', null);
+      return q;
+    };
+    try {
+      const { data, error, count } = await query(true);
+      if (!error) {
+        return { rows: data || [], count: typeof count === 'number' ? count : null, error: null };
       }
-      return { rows: data || [], count: typeof count === 'number' ? count : null, error: null };
+      console.error('Scans fetch error (failed-scan filter):', error);
+      const retry = await query(false);
+      if (retry.error) {
+        console.error('Scans fetch error:', retry.error);
+        return { rows: [], count: null, error: retry.error.message };
+      }
+      return { rows: retry.data || [], count: typeof retry.count === 'number' ? retry.count : null, error: null };
     } catch (e) {
       console.error('Scans fetch exception:', e);
       return { rows: [], count: null, error: (e as Error).message };

@@ -63,6 +63,15 @@ export async function GET(request: NextRequest) {
     if (scan.user_id !== userId) {
       return NextResponse.json({ error: 'Not your scan' }, { status: 403 });
     }
+    // A failed scan has no results to show ideas for, and its photo
+    // was never analysed: ideas can only come from a retry, not
+    // from generating on a failed row.
+    if ((scan as { scan_error?: string | null }).scan_error) {
+      return NextResponse.json(
+        { error: 'This scan failed, so it has no DIY ideas yet. Retry the scan from your History first.' },
+        { status: 400 },
+      );
+    }
 
     // The packaging type was already worked out when the scan ran,
     // and the scan route stores it on the 'scanned' action — so read

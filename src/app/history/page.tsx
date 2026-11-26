@@ -33,6 +33,11 @@ interface Scan {
   recyclability_score: number | null;
   image_url: string | null;
   created_at: string;
+  // Set only on a scan the AI failed to analyse (the coordinator
+  // 500 in /api/scan): the plain error message. A row with this set
+  // is a failed scan — no points, no DIY ideas, no CO2 figures —
+  // and History shows it with a Retry action instead of Add DIY.
+  scan_error?: string | null;
 }
 
 interface UserAction {
@@ -90,6 +95,11 @@ export default function HistoryPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [addDiyId, setAddDiyId] = useState<string | null>(null);
   const [diyError, setDiyError] = useState<string | null>(null);
+  // Retrying a failed scan from History: the button stays disabled
+  // while its retry runs, and a failed retry shows the new error
+  // (the card itself is refreshed too, so its message updates).
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // A failed history load used to show nothing at all — the page
   // looked empty with the failure only in the console. Keep the
   // message so the page can show it (full screen on first load, a
@@ -219,6 +229,43 @@ export default function HistoryPage() {
   const handleEndPending = async (id: string) => {
     setPendingDelete(null);
     await handleDelete('project', id);
+  };
+
+  // Retry a failed scan on its stored photo — no re-upload. The
+  // retry route answers with the same shape as a fresh scan, so a
+  // success opens the results page exactly like one. A failure
+  // keeps the row failed with the new error, and the card is
+  // refreshed so the message on it is the latest one.
+  const handleRetryScan = async (scan: Scan) => {
+    setRetryingId(scan.id);
+    setRetryError(null);
+    try {
+      const response = await authedFetch('/api/scan/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanId: scan.id }),
+      });
+      const result = await readApiJson(response);
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Could not retry this scan');
+      }
+      const queryParams = new URLSearchParams({
+        scanId: result.scanId || scan.id,
+        data: JSON.stringify(result.data),
+        ...(result.errors && result.errors.length > 0 ? {
+          errors: JSON.stringify(result.errors),
+        } : {}),
+        ...(result.visionFallback ? {
+          visionFallback: result.visionFallback,
+        } : {}),
+      });
+      router.push(`/results?${queryParams.toString()}`);
+    } catch (e) {
+      setRetryError((e as Error).message);
+      await fetchHistory();
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   const handleDeleteAll = async (scope: 'scans' | 'projects') => {
@@ -531,6 +578,11 @@ export default function HistoryPage() {
             <p className="text-sm text-red-600">Could not load DIY ideas: {diyError}</p>
           </div>
         )}
+        {retryError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">Could not retry the scan: {retryError}</p>
+          </div>
+        )}
         {activeTab === 'scans' && (
           <div className="space-y-3" role="tabpanel" id="panel-scans" aria-labelledby="tab-scans">
             {(data?.scans.length || 0) > 0 && (
@@ -562,6 +614,79 @@ export default function HistoryPage() {
               </div>
             ) : (
               data?.scans.map((scan) => {
+                // A failed scan renders as its own card, not as a
+                // normal scan: the error is what happened, the
+                // photo is shown when it was saved, and Retry
+                // re-runs the analysis on that photo. No DIY
+                // buttons, no CO2 or recyclability figures — none
+                // exist for a scan that never ran. When the photo
+                // itself wasn't saved there is nothing to retry, so
+                // the card sends the user to the scan page instead.
+                if (scan.scan_error) {
+                  return (
+                    <div key={scan.id} className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-red-400">
+                      <div className="flex items-start space-x-3">
+                        {scan.image_url ? (
+                          <img src={scan.image_url} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                        ) : (
+                          <div className="w-16 h-16 bg-red-100 rounded-lg flex items-center justify-center">
+                            <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <h3 className="font-semibold text-gray-900">Scan failed</h3>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                              Failed
+                            </span>
+                          </div>
+                          <p className="text-sm text-red-600 mt-1">{scan.scan_error}</p>
+                          {scan.product_name !== 'Scan failed' && (
+                            <p className="text-xs text-gray-500 mt-1">Product: {scan.product_name}</p>
+                          )}
+                          {!scan.image_url && (
+                            <p className="text-xs text-gray-500 mt-1">Photo wasn&apos;t saved with this scan.</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end space-y-2 shrink-0">
+                          <span className="text-xs text-gray-500">
+                            {new Date(scan.created_at).toLocaleDateString()}
+                          </span>
+                          <button
+                            onClick={() => setPendingDelete({ kind: 'scan', id: scan.id })}
+                            className={deleteButtonClass}
+                            title="Delete this scan"
+                          >
+                            {trashIcon}
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 mt-3">
+                        {scan.image_url ? (
+                          <button
+                            onClick={() => handleRetryScan(scan)}
+                            disabled={retryingId === scan.id}
+                            className={primaryButtonClass}
+                          >
+                            {retryIcon}
+                            {retryingId === scan.id ? 'Retrying…' : 'Retry scan'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => router.push('/scan')}
+                            className={primaryButtonClass}
+                          >
+                            {uploadIcon}
+                            Scan again
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
                 const diy = getScanDiyState(scan.id, data?.actions || []);
                 const resumeUrl = (diy.selectedAction || diy.failedAction) ? buildVerifyUrl({
                   scanId: scan.id,
