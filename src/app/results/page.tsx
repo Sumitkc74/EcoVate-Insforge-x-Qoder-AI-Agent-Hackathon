@@ -440,7 +440,7 @@ function ResultsContent() {
 
                     <span className="flex items-center justify-between">
                       <span className="text-sm text-green-700 font-medium">
-                        Save {idea.estimated_co2_saved_kg} kg CO2
+                        Save an estimated {idea.estimated_co2_saved_kg} kg CO2
                       </span>
                       {selectedDIY?.title === idea.title && (
                         <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

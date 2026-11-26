@@ -51,6 +51,13 @@ interface LeaderboardEntry {
   sustainability_score: number;
 }
 
+// A guest with no custom name is not on the leaderboard (see GET
+// /api/leaderboard): null, empty, or the 'Guest' placeholder.
+function hasCustomName(name: string | null): boolean {
+  const trimmed = (name || '').trim().toLowerCase();
+  return trimmed !== '' && trimmed !== 'guest';
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
@@ -70,6 +77,10 @@ export default function DashboardPage() {
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrateError, setMigrateError] = useState<string | null>(null);
   const [migrated, setMigrated] = useState(false);
+  // Asks the header menu to open its edit-profile form (the
+  // leaderboard-name nudge below). A counter, so tapping the nudge
+  // twice still re-opens it.
+  const [editProfileRequest, setEditProfileRequest] = useState(0);
 
   // The signed-in user's own leaderboard row, so their rank stays
   // visible even when the list scrolls past it.
@@ -246,6 +257,7 @@ export default function DashboardPage() {
           <UserMenu
             user={user}
             showEmail
+            editProfileRequest={editProfileRequest}
             onNameChange={(name) => setUser((prev) => (prev ? { ...prev, name } : prev))}
             onAvatarChange={(avatar, hasCustomAvatar) => setUser((prev) => (prev ? { ...prev, avatar, hasCustomAvatar } : prev))}
           />
@@ -392,6 +404,15 @@ export default function DashboardPage() {
           <p className="text-xs text-gray-500 -mt-2 mb-3">
             You need more than 0 points to appear on the leaderboard.
           </p>
+          {user?.isAnonymous && (user.sustainability_score || 0) > 0 && !hasCustomName(user.name) && (
+            <button
+              type="button"
+              onClick={() => setEditProfileRequest((n) => n + 1)}
+              className="block text-sm text-green-700 font-medium hover:underline -mt-2 mb-3 text-left"
+            >
+              Add your name to appear on the leaderboard
+            </button>
+          )}
           {myEntry && (
             <p className="text-sm text-gray-600 -mt-2 mb-3">
               You are <span className="font-semibold text-gray-900">#{myEntry.rank}</span> with{' '}

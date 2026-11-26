@@ -105,6 +105,11 @@ export async function getCurrentIdentity(): Promise<ClientIdentity | null> {
     const anon = readAnonSession();
     if (anon) {
       identity = { id: anon.userId, name: anon.name, email: null, avatar: null, hasCustomAvatar: false, isAnonymous: true };
+      // A guest created before the photo cookie existed has a token
+      // in localStorage but no cookie, so their photos would 404.
+      // Refresh it now, before the page fetches its data: the
+      // response sets the cookie, and later <img> fetches carry it.
+      await ensureAnonPhotoCookie();
     }
   }
   if (!identity) return null;
@@ -135,6 +140,18 @@ export async function getAccessToken(): Promise<string | null> {
     }
   }
   return readAnonSession()?.token ?? null;
+}
+
+// The guest photo cookie (/api/image gates photos on it): refresh
+// it for a guest whose localStorage session predates the cookie.
+// Best effort — a failure here never blocks the identity, and the
+// next page load retries.
+export async function ensureAnonPhotoCookie(): Promise<void> {
+  try {
+    await authedFetch('/api/anon-session');
+  } catch {
+    // Photos stay gated until the next page load retries.
+  }
 }
 
 // Signs out of Google (when signed in) and clears the guest session.

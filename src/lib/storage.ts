@@ -13,8 +13,13 @@
  * - scans/<userId>/... and verifications/<userId>/... are the owner's
  *   household photos, so the proxy serves them only on a short-lived
  *   signed URL (15 minutes) minted by the server when it returns the
- *   row that references the photo. A signed URL works in a plain
- *   <img> tag, which cannot send an Authorization header.
+ *   row that references the photo — and only to the session that owns
+ *   the photo (the Supabase session cookies for Google users, the
+ *   guest-token cookie for guests). A signed URL works in a plain
+ *   <img> tag, which cannot send an Authorization header, but the
+ *   signature alone is a bearer token, so it is never the whole
+ *   access check: a signed link opened without the owner's session
+ *   answers 404.
  * The signature is an HMAC over `image:<key>:<exp>` with the service
  * key — the same pattern guest tokens use in server-auth.ts.
  *

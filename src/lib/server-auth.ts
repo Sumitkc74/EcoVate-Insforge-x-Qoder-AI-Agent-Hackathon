@@ -127,6 +127,42 @@ export async function validateAnonToken(token: string): Promise<AuthedUser | nul
   return { id: userId, email: null, name, avatar: null, isAnonymous: true };
 }
 
+// Guest photo cookie: <img> tags cannot send an Authorization
+// header, and the guest token lives in localStorage, so a guest's
+// photo requests carry no token at all. The server therefore also
+// issues the guest token as an HttpOnly cookie — set when the guest
+// session is created (POST /api/anon-session) and refreshed by GET
+// /api/anon-session — so /api/image can prove the photo belongs to
+// the session asking for it. The cookie is not a second session: it
+// carries the same HMAC-signed token, and it dies with the account
+// (sign-out, migration, 7-day sweep) because validateAnonToken
+// requires the users row to still exist.
+export const ANON_COOKIE_NAME = 'ecovate_anon_token';
+
+function anonCookieOptions(): {
+  httpOnly: boolean;
+  sameSite: 'lax';
+  secure: boolean;
+  path: string;
+  maxAge: number;
+} {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: GUEST_EXPIRY_DAYS * 24 * 60 * 60,
+  };
+}
+
+export function setAnonCookie(response: NextResponse, token: string): void {
+  response.cookies.set(ANON_COOKIE_NAME, token, anonCookieOptions());
+}
+
+export function clearAnonCookie(response: NextResponse): void {
+  response.cookies.set(ANON_COOKIE_NAME, '', { ...anonCookieOptions(), maxAge: 0 });
+}
+
 // Validate the Bearer token from the request and return the user it
 // belongs to, or null when the token is missing, invalid or expired.
 // Two token kinds: Supabase access tokens (checked with

@@ -14,6 +14,7 @@ import {
   assertServiceKey,
   requireUser,
   deleteGuestAccount,
+  clearAnonCookie,
   unauthorizedResponse,
   handleRouteError,
 } from '@/lib/server-auth';
@@ -30,7 +31,14 @@ export async function DELETE(request: NextRequest) {
       );
     }
     await deleteGuestAccount(user.id);
-    return NextResponse.json({ success: true });
+    // The guest is gone, so the photo cookie goes with it: without
+    // this a signed link plus the stale cookie would keep proving
+    // an identity that no longer exists (validateAnonToken would
+    // refuse it anyway — the users row is gone — but a dead cookie
+    // should not linger in the browser).
+    const response = NextResponse.json({ success: true });
+    clearAnonCookie(response);
+    return response;
   } catch (error) {
     return handleRouteError(error, 'Guest delete API error:');
   }

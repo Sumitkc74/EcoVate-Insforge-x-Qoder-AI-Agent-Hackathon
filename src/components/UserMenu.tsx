@@ -11,7 +11,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOutAll, authedFetch, readApiJson, updateAnonSessionName } from '@/lib/client-auth';
 import { signInWithGoogle } from '@/lib/auth';
@@ -34,11 +34,16 @@ export default function UserMenu({
   showEmail = false,
   onNameChange,
   onAvatarChange,
+  editProfileRequest = 0,
 }: {
   user: MenuUser | null;
   showEmail?: boolean;
   onNameChange?: (name: string) => void;
   onAvatarChange?: (avatar: string | null, hasCustomAvatar: boolean) => void;
+  // The dashboard's "Add your name to appear on the leaderboard"
+  // nudge opens this same edit form: a rising counter, not a
+  // boolean, so tapping the nudge twice still re-opens it.
+  editProfileRequest?: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -65,6 +70,20 @@ export default function UserMenu({
   const [nameOverride, setNameOverride] = useState<string | null>(null);
   const [avatarOverride, setAvatarOverride] = useState<string | null | undefined>(undefined);
   const [customAvatarOverride, setCustomAvatarOverride] = useState<boolean | null>(null);
+
+  // Open the edit form when the parent asks (dashboard nudge). The
+  // ref guards against re-opening when the user object changes.
+  const lastEditRequestRef = useRef(0);
+  useEffect(() => {
+    if (!editProfileRequest || editProfileRequest === lastEditRequestRef.current) return;
+    lastEditRequestRef.current = editProfileRequest;
+    if (!user) return;
+    setNameInput(user.name || user.email || 'User');
+    setSaved(false);
+    setSaveError(null);
+    setEditing(true);
+    setOpen(true);
+  }, [editProfileRequest, user]);
 
   if (!user) return null;
 

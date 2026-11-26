@@ -20,6 +20,9 @@ import { serverDb } from '@/lib/supabase';
 import {
   assertServiceKey,
   createAnonToken,
+  requireUser,
+  unauthorizedResponse,
+  setAnonCookie,
   normalizeDisplayName,
   guestPoolUsed,
   sweepExpiredGuests,
@@ -68,9 +71,38 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
 
     const token = await createAnonToken(userId);
-    return NextResponse.json({ success: true, userId, token, name });
+    // The token goes to localStorage, and also out as an HttpOnly
+    // cookie: <img> tags cannot send an Authorization header, so
+    // /api/image reads this cookie to prove a guest's photos belong
+    // to the session asking for them. The cookie carries the same
+    // signed token — not a second session — and dies with the
+    // account (see DELETE /api/guest and /api/migrate-guest).
+    const response = NextResponse.json({ success: true, userId, token, name });
+    setAnonCookie(response, token);
+    return response;
   } catch (error) {
     return handleRouteError(error, 'Anonymous session API error:');
+  }
+}
+
+// GET /api/anon-session — refresh the guest photo cookie for a
+// guest created before the cookie existed (or whose cookie was
+// cleared with site data). The Bearer token proves the identity;
+// the response sets the same HttpOnly cookie POST sets. Google
+// users never need it — their photos are gated on the Supabase
+// session cookies instead.
+export async function GET(request: NextRequest) {
+  try {
+    assertServiceKey();
+    const user = await requireUser(request);
+    if (!user || !user.isAnonymous) return unauthorizedResponse();
+    const header = request.headers.get('authorization') || '';
+    const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+    const response = NextResponse.json({ success: true });
+    setAnonCookie(response, token);
+    return response;
+  } catch (error) {
+    return handleRouteError(error, 'Anonymous session refresh API error:');
   }
 }
 

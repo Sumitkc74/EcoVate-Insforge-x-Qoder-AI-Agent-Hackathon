@@ -28,6 +28,7 @@ import {
   assertServiceKey,
   requireUser,
   validateAnonToken,
+  clearAnonCookie,
   isMissingTableError,
   unauthorizedResponse,
   handleRouteError,
@@ -135,11 +136,16 @@ export async function POST(request: NextRequest) {
       .eq('id', guestId);
     if (deleteError) throw deleteError;
 
-    return NextResponse.json({
+    // The guest account is gone, so its photo cookie goes too —
+    // the rows now belong to the Google account, whose photos are
+    // gated on the Supabase session cookies instead.
+    const response = NextResponse.json({
       success: true,
       movedScans: (scans || []).length,
       movedActions: (actions || []).length,
     });
+    clearAnonCookie(response);
+    return response;
   } catch (error) {
     return handleRouteError(error, 'Migrate guest API error:');
   }

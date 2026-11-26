@@ -9,16 +9,52 @@
  * - scans/<userId>/... and verifications/<userId>/... are the
  *   owner's household photos: served only on a short-lived signed
  *   URL minted by the server (see imageUrlForDisplay in
- *   lib/storage.ts). A plain <img> tag cannot send an Authorization
- *   header, so the signature — not a session — is the access check.
- * A missing, expired, or forged signature answers 404, never 403:
+ *   lib/storage.ts) AND only to the session that owns the photo.
+ *   A plain <img> tag cannot send an Authorization header, so the
+ *   session is proved by cookies instead: the Supabase session for
+ *   Google users, the guest-token cookie for guests. A signature
+ *   alone is a bearer token — anyone holding the link could open
+ *   the photo — so it is never enough on its own.
+ * A missing, expired, or forged signature, a missing session, or
+ * a photo that belongs to someone else all answer 404, never 403:
  * the response must not confirm whether the photo exists.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverStorage } from '@/lib/supabase';
-import { assertServiceKey, handleRouteError } from '@/lib/server-auth';
+import { serverStorage, getServerUser } from '@/lib/supabase';
+import {
+  assertServiceKey,
+  validateAnonToken,
+  ANON_COOKIE_NAME,
+  handleRouteError,
+} from '@/lib/server-auth';
 import { verifyImageSignature } from '@/lib/storage';
+
+// The owner id is the second segment of the key:
+// scans/<userId>/... or verifications/<userId>/...
+async function keyBelongsToSession(request: NextRequest, key: string): Promise<boolean> {
+  const ownerId = key.split('/')[1];
+  if (!ownerId) return false;
+  try {
+    // A guest proves itself with the guest-token cookie. A cookie
+    // for a deleted account (sign-out, migration, 7-day sweep) is
+    // dead — validateAnonToken requires the users row — so fall
+    // through to the Google session, which is the live identity
+    // after a migration.
+    const anonToken = request.cookies.get(ANON_COOKIE_NAME)?.value;
+    if (anonToken) {
+      const guest = await validateAnonToken(anonToken);
+      if (guest && guest.id === ownerId) return true;
+    }
+    // Google users prove themselves with the Supabase session
+    // cookies, read the same way getServerUser does elsewhere.
+    const { user } = await getServerUser(request);
+    return !!user && user.id === ownerId;
+  } catch {
+    // Any auth failure fails closed: no photo.
+    return false;
+  }
+}
 
 // Keys are <prefix>/<user uuid>/<file>.<ext> — uploadImage is
 // the only writer and names new files with a uuid, but the March
@@ -39,6 +75,9 @@ export async function GET(request: NextRequest) {
       const exp = Number(request.nextUrl.searchParams.get('exp') || '');
       const sig = request.nextUrl.searchParams.get('sig') || '';
       if (!(await verifyImageSignature(key, exp, sig))) {
+        return new NextResponse(null, { status: 404 });
+      }
+      if (!(await keyBelongsToSession(request, key))) {
         return new NextResponse(null, { status: 404 });
       }
     }

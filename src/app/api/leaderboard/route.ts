@@ -7,6 +7,11 @@
  * projects is not on the board at all. (That also keeps test and
  * guest accounts with no points off the public board.)
  *
+ * Guests appear only with a custom name: an unnamed guest is
+ * just "Guest" on a public board, so a guest with no name set
+ * stays off it even with points. Google users (a real email) are
+ * unaffected, whatever their name is.
+ *
  * One entry per person: the same email can have more than one user
  * row (e.g. an imported row plus the row created when signing in to
  * a new backend), so rows are merged by email, their scores summed,
@@ -36,6 +41,18 @@ interface LeaderboardUser {
 // up within a minute.
 const CACHE_TTL_MS = 60_000;
 let cachedBoard: { at: number; body: { success: true; leaderboard: unknown[] } } | null = null;
+
+// A guest row is an @anon.ecovate.local email (never null — see
+// POST /api/anon-session); an unnamed one stores null, '' or the
+// 'Guest' placeholder normalizeDisplayName supplies. Google users
+// always have a real email, so this never touches them.
+const GUEST_EMAIL_SUFFIX = '@anon.ecovate.local';
+function isUnnamedGuest(user: LeaderboardUser): boolean {
+  const email = user.email || '';
+  if (!email.endsWith(GUEST_EMAIL_SUFFIX)) return false;
+  const name = (user.name || '').trim().toLowerCase();
+  return name === '' || name === 'guest';
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -107,13 +124,15 @@ export async function GET(request: NextRequest) {
 
     // Rank by summed score, newest first on ties. Only scores
     // above 0 make the board — filter after merging, so duplicate
-    // rows for one person add up first.
+    // rows for one person add up first. Unnamed guests stay off
+    // the board too, even with points (see isUnnamedGuest).
     const rankedUsers = [...merged.values()]
       .sort((a, b) =>
         (b.sustainability_score - a.sustainability_score) ||
         (new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       )
       .filter((u) => (u.sustainability_score || 0) > 0)
+      .filter((u) => !isUnnamedGuest(u))
       .slice(0, 20);
 
     // Avatars are rewritten to the proxy at read time, so a stored

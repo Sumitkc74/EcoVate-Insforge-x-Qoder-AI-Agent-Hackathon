@@ -10,6 +10,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { downscaleImageFile, MAX_PHOTO_DIMENSION } from '@/lib/image-resize';
+import { primaryButtonClass, retryIcon } from '@/components/action-buttons';
 import UserMenu from '@/components/UserMenu';
 
 export default function ScanPage() {
@@ -22,6 +23,10 @@ export default function ScanPage() {
   const [showCamera, setShowCamera] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True when the last analysis failed (timeout or server error):
+  // the photo is still here, so the preview offers a Retry button
+  // that re-runs the analysis on the same photo — no re-upload.
+  const [scanFailed, setScanFailed] = useState(false);
   // Detail mismatch: set when the AI recheck is confident the
   // hand-entered details don't match the photo. The user can then
   // correct the details below or retake the photo.
@@ -77,6 +82,7 @@ export default function ScanPage() {
       setPreviewImage(URL.createObjectURL(resized));
       manualEditedRef.current.clear();
       setError(null);
+      setScanFailed(false);
       setOcrText('');
         setImageCheck('');
         setMaterialGuess('');
@@ -172,6 +178,7 @@ export default function ScanPage() {
             setSelectedFile(file);
             setPreviewImage(URL.createObjectURL(file));
             manualEditedRef.current.clear();
+            setScanFailed(false);
             setOcrText('');
                     setImageCheck('');
                     setMaterialGuess('');
@@ -461,6 +468,14 @@ export default function ScanPage() {
     setIsScanning(true);
     setError(null);
     setDetailMismatch(null);
+    setScanFailed(false);
+
+    // The scan route runs at most 60s (maxDuration): time the
+    // client out first, at 55s, so a slow analysis becomes a plain
+    // retry message instead of a hanging spinner or a platform
+    // error page. The photo stays selected either way.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55_000);
 
     try {
       // The caller must be signed in (Google or guest) — the token
@@ -493,6 +508,7 @@ export default function ScanPage() {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
         body: JSON.stringify({
           image: base64Image,
           ...(manualReady ? {
@@ -558,8 +574,17 @@ export default function ScanPage() {
       
       router.push(`/results?${queryParams.toString()}`);
     } catch (err) {
-      setError((err as Error).message);
+      // A timeout is a plain retry message, not a technical error:
+      // the photo is still here and nothing was lost.
+      if ((err as Error).name === 'AbortError') {
+        setError('The analysis took too long — your photo is still here. Try again.');
+      } else {
+        setError((err as Error).message);
+      }
+      setScanFailed(true);
       setIsScanning(false);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }, [selectedFile, router, productName, packagingType, materialsText, ocrText]);
 
@@ -568,6 +593,7 @@ export default function ScanPage() {
     setPreviewImage(null);
     setSelectedFile(null);
     setError(null);
+    setScanFailed(false);
     setDetailMismatch(null);
     setProductName('');
     setPackagingType('');
@@ -637,8 +663,17 @@ export default function ScanPage() {
       {/* Main Content */}
       <main className="max-w-md mx-auto px-4 py-8">
         {isScanning ? (
-          // Loading State
+          // Loading State — the photo stays visible while the
+          // analysis runs, so a wait never feels like the upload
+          // vanished.
           <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+            {previewImage && (
+              <img
+                src={previewImage}
+                alt="Your photo"
+                className="w-32 h-32 object-cover rounded-xl mx-auto mb-4"
+              />
+            )}
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
               <svg className="w-10 h-10 text-green-500 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -693,6 +728,16 @@ export default function ScanPage() {
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-sm text-red-600">{error}</p>
+                  {scanFailed && (
+                    <button
+                      type="button"
+                      onClick={handleScan}
+                      className={`${primaryButtonClass} mt-2 w-full justify-center`}
+                    >
+                      {retryIcon}
+                      Try again
+                    </button>
+                  )}
                 </div>
               )}
               {detailMismatch && (
