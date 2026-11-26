@@ -183,20 +183,22 @@ export async function GET(request: NextRequest) {
 
     const { ideas, error } = await runDIYAgent(packagingType, scan.materials || []);
 
-    // A failed refresh must not replace good ideas with the fixed
-    // fallback set: return an error instead, so the results page
-    // keeps the ideas already on screen and shows a retry message
-    // (its refresh handler only swaps ideas on a successful
-    // response). The attempt still counts — the AI calls were made
-    // — but the user keeps their current ideas and can retry.
-    // The first generation for an old scan (no stored ideas yet)
-    // still falls back: there the fallback set is better than
-    // nothing, and there is nothing good to overwrite.
-    if (refresh && error) {
+    // A failed generation never returns template ideas: there is
+    // no fallback set anymore. On a refresh, return an error
+    // instead, so the results page keeps the ideas already on
+    // screen and shows a retry message (its refresh handler only
+    // swaps ideas on a successful response). On a first generation
+    // for an old scan with no stored ideas, the same 503 says
+    // there are no ideas to show yet. The attempt still counts —
+    // the AI calls were made — but the user keeps their current
+    // ideas (if any) and can retry.
+    if (error) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Could not generate new ideas right now — the AI service failed. Your current ideas are unchanged; try again.',
+          error: refresh
+            ? 'Could not generate new ideas right now — the AI service failed. Your current ideas are unchanged; try again.'
+            : 'Could not generate DIY ideas right now — the AI service failed. Please try again later.',
         },
         { status: 503 },
       );

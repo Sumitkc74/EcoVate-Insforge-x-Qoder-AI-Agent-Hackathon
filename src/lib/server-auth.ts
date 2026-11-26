@@ -471,12 +471,51 @@ export async function overAttemptCap(
 // The old pattern was check-then-log, so two requests racing the
 // cap check could both pass and both burn AI quota before either
 // logged. Now the second one sees the first one's row and is turned
-// away. Returns true when the caller should answer 429. The early
+// away. Returns whether the caller should answer 429, plus the
+// claimed row's id so a caller can refund exactly that row when the
+// attempt produced nothing (see refundAttempt). The early
 // overAttemptCap check stays in the routes as a cheap fast path;
 // this is the enforcement. A rejected claim still leaves its row
 // logged — the attempt was made. When the usage_attempts table does
 // not exist yet, falls back to the legacy check (and nothing is
-// logged, as before).
+// logged, as before, so there is no id to refund).
+export async function claimAttemptWithId(
+  userId: string,
+  kind: AttemptKind,
+  legacyTable: 'scans' | 'user_actions' | null,
+  legacyTypes: string[] | null,
+  cap: number,
+): Promise<{ overCap: boolean; attemptId: string | null }> {
+  let attemptId: string | null = null;
+  try {
+    const { data, error } = await serverDb
+      .from('usage_attempts')
+      .insert([{ user_id: userId, kind }])
+      .select('id')
+      .single();
+    if (error) {
+      if (isMissingTableError(error)) {
+        if (legacyTable === null) return { overCap: false, attemptId: null };
+        return {
+          overCap: await overDailyCap(userId, legacyTable, legacyTypes, cap),
+          attemptId: null,
+        };
+      }
+      console.error('Attempt claim failed (fail-closed):', error);
+      return { overCap: true, attemptId: null };
+    }
+    attemptId = (data as { id?: string } | null)?.id ?? null;
+  } catch (err) {
+    console.error('Attempt claim failed (fail-closed):', err);
+    return { overCap: true, attemptId: null };
+  }
+  const attempts = await countAttempts(userId, kind, cap);
+  if (typeof attempts === 'number') return { overCap: attempts > cap, attemptId };
+  // A count failure after a successful insert fails closed.
+  console.error('Attempt claim count failed (fail-closed):', kind, userId);
+  return { overCap: true, attemptId };
+}
+
 export async function claimAttempt(
   userId: string,
   kind: AttemptKind,
@@ -484,27 +523,39 @@ export async function claimAttempt(
   legacyTypes: string[] | null,
   cap: number,
 ): Promise<boolean> {
+  return (await claimAttemptWithId(userId, kind, legacyTable, legacyTypes, cap)).overCap;
+}
+
+// Refund one claimed attempt: delete exactly the row the claim
+// inserted, matched by its id AND the user it belongs to — never
+// "the latest row for this user", which could be someone else's
+// concurrent attempt. Best effort and silent: a missing row (already
+// gone) or a DB error only logs, so a refund failure never turns a
+// failed scan into a second error for the user. Use only when the
+// attempt produced nothing the user got (e.g. the AI failed and no
+// scan data came back); a scan that returned results keeps its row.
+// Deleting the row also refunds the shared guest pool, which counts
+// usage_attempts rows.
+export async function refundAttempt(
+  attemptId: string | null | undefined,
+  userId: string,
+): Promise<void> {
+  if (!attemptId) return;
   try {
     const { error } = await serverDb
       .from('usage_attempts')
-      .insert([{ user_id: userId, kind }]);
+      .delete()
+      .eq('id', attemptId)
+      .eq('user_id', userId);
     if (error) {
-      if (isMissingTableError(error)) {
-        if (legacyTable === null) return false;
-        return overDailyCap(userId, legacyTable, legacyTypes, cap);
+      if (!isMissingTableError(error)) {
+        console.error('Attempt refund failed:', error);
       }
-      console.error('Attempt claim failed (fail-closed):', error);
-      return true;
+      return;
     }
   } catch (err) {
-    console.error('Attempt claim failed (fail-closed):', err);
-    return true;
+    console.error('Attempt refund failed:', err);
   }
-  const attempts = await countAttempts(userId, kind, cap);
-  if (typeof attempts === 'number') return attempts > cap;
-  // A count failure after a successful insert fails closed.
-  console.error('Attempt claim count failed (fail-closed):', kind, userId);
-  return true;
 }
 
 export function unauthorizedResponse(): NextResponse {

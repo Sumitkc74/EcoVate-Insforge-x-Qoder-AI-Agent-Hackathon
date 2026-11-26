@@ -9,10 +9,15 @@
  * every "Get different ideas" refresh goes through here, so the
  * gateway was billing on the app's most common action.
  *
- * The prompt, the idea shape, and the built-in fallback ideas are
- * unchanged — only the model call moved. Temperature stays 0.7:
- * ideas are suggestions, so variation is the point (it is what
- * makes "Get different ideas" return different ideas).
+ * The prompt and the idea shape are unchanged — only the model call
+ * moved. Temperature stays 0.7: ideas are suggestions, so variation
+ * is the point (it is what makes "Get different ideas" return
+ * different ideas).
+ *
+ * There is deliberately NO fallback set of ideas: the project is
+ * AI-driven, so when both models fail the agent returns no ideas
+ * and an error, and the scan stops instead of showing generic
+ * template ideas.
  */
 
 import { generateIdeasWithGroq } from '../groq-vision';
@@ -155,8 +160,7 @@ export async function runDIYAgent(
     if (geminiIdeas) return { ideas: geminiIdeas, error: null };
 
     // Too little time left in the scan's budget for a second model
-    // call: fall through to the built-in fallback ideas (with the
-    // error, so the scan says so) instead of starting a Groq call
+    // call: return the error instead of starting a Groq call
     // Vercel would kill mid-flight.
     if (remainingMs() <= 12000) {
       throw new Error('DIY generation ran out of time (Gemini failed and too little time remains for a second attempt)');
@@ -171,48 +175,10 @@ export async function runDIYAgent(
   } catch (error) {
     console.error('DIY Agent error:', error);
 
-    // Return fallback ideas
-    const fallbackIdeas: DIYIdea[] = [
-      {
-        title: `${packagingType} Planter`,
-        difficulty: 'easy',
-        materials_needed: ['soil', 'seeds or small plant'],
-        steps: [
-          `Clean the ${packagingType} thoroughly`,
-          'Add drainage holes if needed',
-          'Fill with potting soil',
-          'Plant seeds or transplant a small plant',
-          'Water and place in sunlight'
-        ],
-        estimated_co2_saved_kg: 0.3,
-      },
-      {
-        title: `${packagingType} Storage Container`,
-        difficulty: 'easy',
-        materials_needed: ['decorative tape or paint (optional)'],
-        steps: [
-          `Clean and dry the ${packagingType}`,
-          'Remove any labels if desired',
-          'Decorate with tape or paint',
-          'Use to store small items like buttons, coins, or office supplies'
-        ],
-        estimated_co2_saved_kg: 0.2,
-      },
-      {
-        title: `${packagingType} Bird Feeder`,
-        difficulty: 'medium',
-        materials_needed: ['string or wire', 'bird seed', 'wooden spoons or sticks'],
-        steps: [
-          `Clean the ${packagingType} thoroughly`,
-          'Cut feeding holes near the base',
-          'Attach perches using wooden spoons or sticks',
-          'Create a hanging mechanism with string or wire',
-          'Fill with bird seed and hang outside'
-        ],
-        estimated_co2_saved_kg: 0.4,
-      },
-    ];
-
-    return { ideas: fallbackIdeas, error: error as Error };
+    // No fallback ideas: the project is AI-driven, so generic
+    // template ideas are worse than stopping. The caller (the
+    // coordinator, or the diy-ideas route) turns this error into
+    // a plain "AI unavailable, try again later" message.
+    return { ideas: [], error: error as Error };
   }
 }

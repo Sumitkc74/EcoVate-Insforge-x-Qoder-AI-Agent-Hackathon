@@ -14,7 +14,8 @@ import {
   assertServiceKey,
   requireUser,
   overAttemptCap,
-  claimAttempt,
+  claimAttemptWithId,
+  refundAttempt,
   guestPoolUsed,
   GUEST_DAILY_POOL,
   GUEST_POOL_MESSAGE,
@@ -257,8 +258,13 @@ export async function POST(request: NextRequest) {
     // the recheck, so it used to burn one of a guest's 2 daily
     // scans for nothing — it no longer does. The claim inserts
     // first and counts second, so two requests racing the cap check
-    // above can no longer both pass and both burn quota.
-    if (await claimAttempt(userId, 'scan', 'scans', null, scanCap)) {
+    // above can no longer both pass and both burn quota. The one
+    // exception is a scan that fails after the claim with no data
+    // (the AI-down case below): that attempt is refunded, so a
+    // failed scan does not cost the user one of their daily scans.
+    // A rejected claim (429) keeps its row — the attempt was made.
+    const claim = await claimAttemptWithId(userId, 'scan', 'scans', null, scanCap);
+    if (claim.overCap) {
       return NextResponse.json(
         {
           success: false,
@@ -280,6 +286,14 @@ export async function POST(request: NextRequest) {
       : null;
 
     if (!coordinatorResult.success && !coordinatorResult.data) {
+      // No scan data came back (the AI failed): refund exactly the
+      // row this request claimed, so the failed scan does not cost
+      // the user one of their daily scans — or one of the shared
+      // guest pool's. The refund deletes by the claimed id + user,
+      // never another attempt, and fails silently if already gone.
+      // A scan that returned results (including partial data with
+      // warnings) keeps its row and still counts.
+      await refundAttempt(claim.attemptId, userId);
       return NextResponse.json({
         success: false,
         // Surface the real reason instead of a generic failure: the

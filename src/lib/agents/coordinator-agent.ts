@@ -33,8 +33,16 @@ export interface ManualScanInput {
  * packaging type, Vision AI is skipped entirely. This keeps scans working
  * on backends where the Insforge AI gateway is unavailable (for example,
  * gated behind a paid plan), using only the deterministic research agent
- * and the DIY agent's built-in fallback ideas.
+ * and the DIY agent. The DIY agent has no fallback ideas of its own:
+ * if both AI models fail, the scan stops (see below) instead of
+ * showing generic template ideas.
  */
+
+// User-facing message when the DIY ideas cannot be generated
+// because the AI is unavailable. The technical error goes to the
+// server log only — the user sees this, and the scan stops.
+const DIY_UNAVAILABLE_MESSAGE =
+  "Our AI is unavailable right now, so we can't create DIY ideas for this photo. Please try again later.";
 export async function runCoordinatorAgent(
   imageBase64: string,
   manual?: ManualScanInput,
@@ -160,16 +168,29 @@ export async function runCoordinatorAgent(
       }));
     }
 
-    // Process DIY Agent result. The DIY agent returns built-in fallback
-    // ideas even when its AI call fails, so keep those ideas usable.
-    if (diyResult.ideas && diyResult.ideas.length > 0) {
-      partialData.diy_ideas = diyResult.ideas;
+    // Process DIY Agent result. The DIY agent has no fallback
+    // ideas: when its AI calls fail, the whole scan fails instead
+    // of showing generic template ideas. The project is AI-driven,
+    // so a scan with no AI-made ideas is not a scan at all. The
+    // technical error stays in the server log; the user sees only
+    // the plain message below, and the scan route returns it as a
+    // 500 the scan page shows with a Try again button.
+    if (diyResult.error || !diyResult.ideas || diyResult.ideas.length === 0) {
+      if (diyResult.error) {
+        console.error('DIY Agent failed:', diyResult.error);
+      }
+      if (errors.length > 0) {
+        // A research failure too: keep it in the server log even
+        // though the user only sees the DIY message.
+        console.error('Coordinator: other scan errors:', errors);
+      }
+      return {
+        success: false,
+        errors: [DIY_UNAVAILABLE_MESSAGE],
+        executionTimeMs: Date.now() - startTime,
+      };
     }
-    if (diyResult.error) {
-      errors.push(`DIY Agent failed, using fallback ideas: ${diyResult.error.message || 'Unknown error'}`);
-    } else if (!diyResult.ideas || diyResult.ideas.length === 0) {
-      errors.push('DIY Agent failed: Unknown error');
-    }
+    partialData.diy_ideas = diyResult.ideas;
 
     const executionTimeMs = Date.now() - startTime;
 
