@@ -28,9 +28,10 @@ export default function TermsPage() {
         </p>
         <h2 className="text-base font-semibold text-gray-900">Age</h2>
         <p>
-          EcoVate is for people aged 13 and older. By using EcoVate you confirm you are at
-          least 13. Guests confirm this when starting a guest session and before uploading a
-          photo. If you are under 13, do not use EcoVate.
+          EcoVate is for people aged 18 and older. By using EcoVate you confirm you are at
+          least 18. This applies whether you sign in with Google or continue as a guest.
+          Guests confirm this again before uploading a photo. If you are under 18, do not
+          use EcoVate.
         </p>
         <h2 className="text-base font-semibold text-gray-900">Your photos</h2>
         <p>

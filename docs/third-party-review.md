@@ -137,13 +137,13 @@ Provider terms change; re-check before relying on any of this.
    Unpaid Services. EcoVate tells users not to upload photos of
    people, but a packaging photo can still contain personal
    information.
-2. **Gemini age term conflicts with the app's 13+ gate.** The Gemini
-   API terms require the API user to be 18 or older and forbid API
-   Clients directed at or likely to be accessed by under-18s. EcoVate
-   sets its age gate at 13+, matching Google's 13+ rule for Google
-   accounts. The 13+ gate does **not** satisfy Gemini's 18+ API
-   Client term. This needs a decision (and possibly legal advice);
-   it is flagged here, not fixed.
+2. **Gemini age term — fixed Nov 26.** The Gemini API terms require
+   the API user to be 18 or older and forbid API Clients directed at
+   or likely to be accessed by under-18s. EcoVate now gates every
+   sign-in path (Google and guest) on an 18+ confirmation, and guests
+   re-confirm before each photo upload. This satisfies the API Client
+   term as written; the remaining Gemini gaps are the missing DPA
+   (item 1) and the EEA / UK paid-tier rule (item 3).
 3. **Gemini EEA / Switzerland / UK.** The terms allow only Paid
    Services for users in those regions. EcoVate uses unpaid quota and
    is open to anyone.

@@ -55,9 +55,9 @@ function VerifyContent() {
     hasCustomAvatar?: boolean;
   } | null>(null);
   // Whether the current user is a guest (null until the identity
-  // loads). Guests get the age confirmation before uploading — a
-  // Google sign-in is covered by Google's own age requirement, so
-  // signed-in users never see it.
+  // loads). Guests get the age confirmation before uploading —
+  // signed-in users already confirmed 18+ at sign-in, so they
+  // never see it.
   const [isGuest, setIsGuest] = useState<boolean | null>(null);
   // Upload confirmations, reset with every new photo: age (guests
   // only) and consent to the photo being stored and sent to the AI
@@ -666,7 +666,7 @@ function VerifyContent() {
                         onChange={(e) => setAgeConfirmed(e.target.checked)}
                         className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
                       />
-                      <span>I confirm I am 13 or older.</span>
+                      <span>I confirm I am 18 or older.</span>
                     </label>
                   )}
                   <label className="flex items-start gap-2 text-sm text-gray-700">

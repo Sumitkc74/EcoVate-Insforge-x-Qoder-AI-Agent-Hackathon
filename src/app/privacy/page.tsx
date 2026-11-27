@@ -54,10 +54,9 @@ export default function PrivacyPage() {
         </ul>
         <h2 className="text-base font-semibold text-gray-900">Age</h2>
         <p>
-          EcoVate is for people aged 13 and older. If you are under 13, do not use EcoVate.
-          Guests confirm they are 13 or older when they start a guest session and before
-          uploading a photo. Signing in with Google is covered by Google&apos;s own age
-          requirement for Google accounts.
+          EcoVate is for people aged 18 and older. If you are under 18, do not use EcoVate.
+          Confirm you are 18 or older before signing in with Google or starting a guest
+          session. Guests confirm again before uploading a photo.
         </p>
         <h2 className="text-base font-semibold text-gray-900">Photos</h2>
         <p>

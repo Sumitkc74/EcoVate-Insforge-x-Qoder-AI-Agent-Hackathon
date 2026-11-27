@@ -17,9 +17,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [guestName, setGuestName] = useState('');
   const [isGuestLoading, setIsGuestLoading] = useState(false);
-  // Age gate (guests only — Google sign-in is covered by Google's
-  // own age requirement for Google accounts): a guest session is
-  // only created once the user confirms they are 13 or older.
+  // Age gate (Gemini API terms: the app must not be directed at or
+  // likely accessed by under-18s): every sign-in path — Google and
+  // guest — requires confirming 18 or older first.
   const [ageConfirmed, setAgeConfirmed] = useState(false);
 
   const handleGoogleSignIn = async () => {
@@ -125,10 +125,21 @@ export default function LoginPage() {
           </div>
         )}
 
+        {/* Age confirmation, required before either sign-in path */}
+        <label className="flex items-start gap-2 mb-4 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={ageConfirmed}
+            onChange={(e) => setAgeConfirmed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
+          />
+          <span>I confirm I am 18 or older.</span>
+        </label>
+
         {/* Google Sign In Button */}
         <button
           onClick={handleGoogleSignIn}
-          disabled={isLoading}
+          disabled={isLoading || !ageConfirmed}
           className="w-full flex items-center justify-center space-x-3 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-medium py-3 px-4 rounded-xl transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? (
@@ -178,15 +189,6 @@ export default function LoginPage() {
           className="w-full border-2 border-gray-200 rounded-xl py-3 px-4 text-gray-900 placeholder-gray-400 focus:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-700 mb-1"
         />
         <p className="text-xs text-gray-500 mb-3">This name is shown publicly on the leaderboard.</p>
-        <label className="flex items-start gap-2 mb-3 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={ageConfirmed}
-            onChange={(e) => setAgeConfirmed(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
-          />
-          <span>I confirm I am 13 or older.</span>
-        </label>
         <button
           onClick={handleGuestSignIn}
           disabled={isGuestLoading || !ageConfirmed}
