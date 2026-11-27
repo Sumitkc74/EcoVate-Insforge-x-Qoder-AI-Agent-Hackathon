@@ -1,0 +1,44 @@
+EcoVate — Open Source Notices
+===============================
+
+EcoVate is built with the following third-party software. The full
+license text for each item ships with the installed package (see the
+node_modules directory) or at the link given.
+
+MIT License (https://opensource.org/licenses/MIT)
+-------------------------------------------------
+- Next.js 16.2.1 — Copyright (c) 2025 Vercel, Inc.
+  https://github.com/vercel/next.js
+- React 19.2.4 and React DOM 19.2.4 — Copyright (c) Meta Platforms,
+  Inc. and affiliates.
+  https://github.com/facebook/react
+- @supabase/supabase-js 2.119.0 — Copyright (c) 2020 Supabase
+  https://github.com/supabase/supabase-js
+- @supabase/ssr 0.12.7 — Copyright (c) 2022-2023 Supabase, Inc.
+  https://github.com/supabase/ssr
+- Tailwind CSS 4.2.2 — Copyright (c) Tailwind Labs, Inc.
+  https://github.com/tailwindlabs/tailwindcss
+
+Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+----------------------------------------------------------------------------
+- TensorFlow.js 4.22.0 (@tensorflow/tfjs)
+  https://github.com/tensorflow/tfjs
+- COCO-SSD model 2.2.3 (@tensorflow-models/coco-ssd)
+  https://github.com/tensorflow/tfjs-models
+- tesseract.js 7.0.0
+  https://github.com/naptha/tesseract.js
+
+SIL Open Font License, Version 1.1 (https://scripts.sil.org/OFL)
+----------------------------------------------------------------
+- Geist and Geist Mono fonts — Copyright 2024 The Geist Project
+  Authors (https://github.com/vercel/geist-font). Used through
+  next/font/google.
+
+Tesseract language data
+------------------------
+- eng.traineddata — English language data for Tesseract OCR, from
+  the Tesseract project's tessdata_fast set
+  (https://github.com/tesseract-ocr/tessdata_fast). Licensed under
+  the Apache License, Version 2.0
+  (http://www.apache.org/licenses/LICENSE-2.0). The file is included
+  in this repository and is not referenced by the app code.

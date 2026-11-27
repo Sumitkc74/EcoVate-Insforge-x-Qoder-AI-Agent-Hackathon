@@ -54,6 +54,16 @@ function VerifyContent() {
     avatar: string | null;
     hasCustomAvatar?: boolean;
   } | null>(null);
+  // Whether the current user is a guest (null until the identity
+  // loads). Guests get the age confirmation before uploading — a
+  // Google sign-in is covered by Google's own age requirement, so
+  // signed-in users never see it.
+  const [isGuest, setIsGuest] = useState<boolean | null>(null);
+  // Upload confirmations, reset with every new photo: age (guests
+  // only) and consent to the photo being stored and sent to the AI
+  // providers. Both must be checked before Submit is enabled.
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [photoConsent, setPhotoConsent] = useState(false);
 
   // Challenge code for the points path: issued per attempt, good
   // for 15 minutes. A retry always fetches a fresh one.
@@ -175,6 +185,7 @@ function VerifyContent() {
     // Signed-in user for the header menu (name + Sign out dropdown).
     getCurrentIdentity().then((identity) => {
       if (identity) {
+        setIsGuest(identity.isAnonymous);
         setHeaderUser({
           name: identity.name,
           email: identity.email,
@@ -216,6 +227,8 @@ function VerifyContent() {
     setSelectedFile(null);
     setPreviewImage(null);
     setCaptureMode(null);
+    setAgeConfirmed(false);
+    setPhotoConsent(false);
     setError(null);
     await fetchChallenge();
     await fetchUsage();
@@ -250,6 +263,9 @@ function VerifyContent() {
       setPreviewImage(URL.createObjectURL(resized));
       // Gallery uploads are feedback only — they never earn points.
       setCaptureMode('feedback');
+      // A new photo needs fresh confirmations.
+      setAgeConfirmed(false);
+      setPhotoConsent(false);
       setError(null);
     }
     // Reset the input so the same file can be picked again.
@@ -262,6 +278,9 @@ function VerifyContent() {
     setPreviewImage(URL.createObjectURL(resized));
     setCaptureMode('points');
     setCameraOpen(false);
+    // A new photo needs fresh confirmations.
+    setAgeConfirmed(false);
+    setPhotoConsent(false);
     setError(null);
   };
 
@@ -637,9 +656,36 @@ function VerifyContent() {
                 className="w-full aspect-square object-cover"
               />
               <div className="p-4 space-y-3">
+                <div className="space-y-2 border border-gray-200 rounded-xl p-3">
+                  <p className="text-sm font-semibold text-gray-900">Before you upload</p>
+                  {isGuest !== false && (
+                    <label className="flex items-start gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={ageConfirmed}
+                        onChange={(e) => setAgeConfirmed(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
+                      />
+                      <span>I confirm I am 13 or older.</span>
+                    </label>
+                  )}
+                  <label className="flex items-start gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={photoConsent}
+                      onChange={(e) => setPhotoConsent(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
+                    />
+                    <span>
+                      I understand this photo will be stored privately and sent to Google Gemini
+                      and Groq to check whether it shows my finished project. Please avoid photos
+                      showing people, personal information, or the inside of your home.
+                    </span>
+                  </label>
+                </div>
                 <button
                   onClick={handleSubmit}
-                  disabled={isVerifying}
+                  disabled={isVerifying || !photoConsent || (isGuest !== false && !ageConfirmed)}
                   className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 disabled:opacity-50"
                 >
                   {isVerifying ? (

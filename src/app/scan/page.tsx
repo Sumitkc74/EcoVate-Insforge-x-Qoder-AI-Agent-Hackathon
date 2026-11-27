@@ -69,6 +69,16 @@ export default function ScanPage() {
     avatar: string | null;
     hasCustomAvatar?: boolean;
   } | null>(null);
+  // Whether the current user is a guest (null until the identity
+  // loads). Guests get the age confirmation before uploading — a
+  // Google sign-in is covered by Google's own age requirement, so
+  // signed-in users never see it.
+  const [isGuest, setIsGuest] = useState<boolean | null>(null);
+  // Upload confirmations, reset with every new photo: age (guests
+  // only) and consent to the photo being stored and sent to the AI
+  // providers. Both must be checked before Analyze is enabled.
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [photoConsent, setPhotoConsent] = useState(false);
 
   // Handle file selection. The photo is downscaled to 1024px on
   // the longest side first: a full-resolution phone photo sent as
@@ -90,6 +100,9 @@ export default function ScanPage() {
       setError(null);
       setScanFailed(false);
       setFailedScanId(null);
+      // A new photo needs fresh confirmations.
+      setAgeConfirmed(false);
+      setPhotoConsent(false);
       setOcrText('');
         setImageCheck('');
         setMaterialGuess('');
@@ -101,6 +114,7 @@ export default function ScanPage() {
   useEffect(() => {
     getCurrentIdentity().then((identity) => {
       if (identity) {
+        setIsGuest(identity.isAnonymous);
         setHeaderUser({
           name: identity.name,
           email: identity.email,
@@ -187,6 +201,9 @@ export default function ScanPage() {
             manualEditedRef.current.clear();
             setScanFailed(false);
             setFailedScanId(null);
+            // A new photo needs fresh confirmations.
+            setAgeConfirmed(false);
+            setPhotoConsent(false);
             setOcrText('');
                     setImageCheck('');
                     setMaterialGuess('');
@@ -603,6 +620,8 @@ export default function ScanPage() {
     setError(null);
     setScanFailed(false);
     setFailedScanId(null);
+    setAgeConfirmed(false);
+    setPhotoConsent(false);
     setDetailMismatch(null);
     setProductName('');
     setPackagingType('');
@@ -855,9 +874,37 @@ export default function ScanPage() {
                 </div>
                 <p className="text-xs text-gray-700">With a product name and packaging type filled in, the scan skips AI vision and still gives impact and DIY ideas.</p>
               </div>
+              <div className="space-y-2 border border-gray-200 rounded-xl p-3">
+                <p className="text-sm font-semibold text-gray-900">Before you upload</p>
+                {isGuest !== false && (
+                  <label className="flex items-start gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={ageConfirmed}
+                      onChange={(e) => setAgeConfirmed(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
+                    />
+                    <span>I confirm I am 13 or older.</span>
+                  </label>
+                )}
+                <label className="flex items-start gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={photoConsent}
+                    onChange={(e) => setPhotoConsent(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
+                  />
+                  <span>
+                    I understand this photo will be stored privately and sent to Google Gemini and
+                    Groq to run the scan. Please avoid photos showing people, personal information,
+                    or the inside of your home.
+                  </span>
+                </label>
+              </div>
               <button
                 onClick={handleScan}
-                className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
+                disabled={!photoConsent || (isGuest !== false && !ageConfirmed)}
+                className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Analyze Product
               </button>

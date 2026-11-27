@@ -20,13 +20,44 @@ export default function PrivacyPage() {
       <main className="max-w-md mx-auto px-4 py-6 space-y-4 text-sm text-gray-700">
         <h1 className="text-xl font-bold text-gray-900">Privacy Policy</h1>
         <h2 className="text-base font-semibold text-gray-900">What we collect</h2>
+        <p>Each item below is collected for the reason given — nothing else.</p>
+        <ul className="list-disc pl-5 space-y-2">
+          <li>
+            <span className="font-semibold text-gray-900">Your Google name</span> — shown on the
+            leaderboard and in the app, so your scans and projects are tied to your account.
+          </li>
+          <li>
+            <span className="font-semibold text-gray-900">Your Google email address</span> — used
+            to identify your account when you sign in. It is never shown to anyone.
+          </li>
+          <li>
+            <span className="font-semibold text-gray-900">Your Google profile photo</span> — used
+            as your profile photo on the leaderboard and in the app.
+          </li>
+          <li>
+            <span className="font-semibold text-gray-900">Your guest display name, if you pick one</span> — shown
+            on the leaderboard as your name.
+          </li>
+          <li>
+            <span className="font-semibold text-gray-900">Photos you upload</span> — sent to our AI
+            providers (Google Gemini and Groq) so the scan or verification can run, and stored
+            privately so they can be shown in your History.
+          </li>
+          <li>
+            <span className="font-semibold text-gray-900">Your scan history</span> — shown in your
+            History, and used to count your points and leaderboard score.
+          </li>
+          <li>
+            <span className="font-semibold text-gray-900">Your DIY projects</span> — checked when
+            you verify them, awarded points when complete, and shown in your History.
+          </li>
+        </ul>
+        <h2 className="text-base font-semibold text-gray-900">Age</h2>
         <p>
-          If you sign in with Google, we store your name, email
-          address, and profile photo so your scans, projects, and
-          leaderboard entry can be tied to your account. If you
-          continue as a guest, we store only the display name you
-          pick, if any. We also store the photos you upload, your
-          scan history, and the DIY projects you complete.
+          EcoVate is for people aged 13 and older. If you are under 13, do not use EcoVate.
+          Guests confirm they are 13 or older when they start a guest session and before
+          uploading a photo. Signing in with Google is covered by Google&apos;s own age
+          requirement for Google accounts.
         </p>
         <h2 className="text-base font-semibold text-gray-900">Photos</h2>
         <p>
@@ -37,6 +68,14 @@ export default function PrivacyPage() {
           are sent to our AI providers (Google Gemini and Groq) so
           the scan can run; we do not sell your photos or your data
           to anyone.
+        </p>
+        <h2 className="text-base font-semibold text-gray-900">Cookies</h2>
+        <p>
+          EcoVate sets a small number of cookies to keep you signed in: a Supabase sign-in
+          cookie when you use Google sign-in, and a guest cookie that lets the app show a
+          guest&apos;s own photos. There are no advertising or tracking cookies. See the{' '}
+          <a href="/cookie" className="text-green-700 hover:text-green-700 underline">Cookie Policy</a>{' '}
+          for the full list.
         </p>
         <h2 className="text-base font-semibold text-gray-900">How long we keep it</h2>
         <p>

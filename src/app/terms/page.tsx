@@ -26,6 +26,12 @@ export default function TermsPage() {
           bin. It is a demonstration project, provided as-is with no
           warranty.
         </p>
+        <h2 className="text-base font-semibold text-gray-900">Age</h2>
+        <p>
+          EcoVate is for people aged 13 and older. By using EcoVate you confirm you are at
+          least 13. Guests confirm this when starting a guest session and before uploading a
+          photo. If you are under 13, do not use EcoVate.
+        </p>
         <h2 className="text-base font-semibold text-gray-900">Your photos</h2>
         <p>
           You keep ownership of the photos you upload. By uploading

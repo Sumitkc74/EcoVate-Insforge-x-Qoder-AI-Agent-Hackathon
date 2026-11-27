@@ -17,6 +17,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [guestName, setGuestName] = useState('');
   const [isGuestLoading, setIsGuestLoading] = useState(false);
+  // Age gate (guests only — Google sign-in is covered by Google's
+  // own age requirement for Google accounts): a guest session is
+  // only created once the user confirms they are 13 or older.
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
@@ -171,11 +175,21 @@ export default function LoginPage() {
           onChange={(e) => setGuestName(e.target.value)}
           maxLength={40}
           placeholder="e.g. Alex"
-          className="w-full border-2 border-gray-200 rounded-xl py-3 px-4 text-gray-900 placeholder-gray-400 focus:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-700 mb-3"
+          className="w-full border-2 border-gray-200 rounded-xl py-3 px-4 text-gray-900 placeholder-gray-400 focus:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-700 mb-1"
         />
+        <p className="text-xs text-gray-500 mb-3">This name is shown publicly on the leaderboard.</p>
+        <label className="flex items-start gap-2 mb-3 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={ageConfirmed}
+            onChange={(e) => setAgeConfirmed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-green-700"
+          />
+          <span>I confirm I am 13 or older.</span>
+        </label>
         <button
           onClick={handleGuestSignIn}
-          disabled={isGuestLoading}
+          disabled={isGuestLoading || !ageConfirmed}
           className="w-full flex items-center justify-center space-x-3 bg-green-700 hover:bg-green-800 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGuestLoading ? (
@@ -193,6 +207,10 @@ export default function LoginPage() {
           <a href="/terms" className="text-green-700 hover:text-green-700 underline">Terms of Service</a>{' '}
           and{' '}
           <a href="/privacy" className="text-green-700 hover:text-green-700 underline">Privacy Policy</a>
+          {'. '}
+          <a href="/cookie" className="text-green-700 hover:text-green-700 underline">Cookie Policy</a>
+          {' · '}
+          <a href="https://github.com/Sumitkc74/EcoVate-Insforge-x-Qoder-AI-Agent-Hackathon/blob/main/NOTICE" target="_blank" rel="noreferrer" className="text-green-700 hover:text-green-700 underline">Open Source Notices</a>
         </p>
       </div>
     </div>
