@@ -10,6 +10,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentIdentity, authedFetch, readApiJson } from '@/lib/client-auth';
 import { downscaleImageFile, MAX_PHOTO_DIMENSION } from '@/lib/image-resize';
+import { pickProductNameFromLabel } from '@/lib/pick-product-name';
 import { primaryButtonClass, retryIcon } from '@/components/action-buttons';
 import UserMenu from '@/components/UserMenu';
 
@@ -401,8 +402,8 @@ export default function ScanPage() {
       }
     }
     // A product name is needed for the scan to skip AI vision, so
-    // fall back to the label's first line — but only if it looks
-    // like real words. Garbled OCR noise (e.g. "5 - a" from a
+    // fall back to the label's first word-like line — but only if it
+    // looks like real words. Garbled OCR noise (e.g. "5 - a" from a
     // watermark) must never become the product name. And never
     // invent one from the packaging type: "Bottle" as a product
     // name sent the scan down the manual path, so AI vision — the
@@ -412,13 +413,7 @@ export default function ScanPage() {
     // vision, which honestly returns "Unknown" when nothing can
     // be read.
     if (!localProduct) {
-      const firstLine = labelText.split('\n').map((line) => line.trim()).find(Boolean) || '';
-      const letters = firstLine.replace(/[^a-z]/gi, '').length;
-      const looksLikeWords =
-        firstLine.length >= 3 &&
-        /[a-z]{4,}/i.test(firstLine) &&
-        letters / firstLine.length >= 0.6;
-      localProduct = looksLikeWords ? firstLine.slice(0, 40) : '';
+      localProduct = pickProductNameFromLabel(labelText);
     }
     // Manual edits win: only fill in fields the user has not
     // typed in themselves while the check was running.
